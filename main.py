@@ -121,7 +121,15 @@ def main():
       """
                                                                                                                                                                                  
     print(f"\033[95m{logo}\033[0m")
-    script_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # Determine the base directory (for exe or script)
+    if getattr(sys, 'frozen', False):
+        # Running as a compiled exe
+        script_dir = os.path.dirname(sys.executable)
+    else:
+        # Running as a .py script
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+
     image_folder_name = input("Enter the name of the folder with images: ")
     pack_name = input("Enter the name of the pack: ")
 
@@ -133,22 +141,14 @@ def main():
         input("\nPress Enter to exit.")
         return
 
-    # 1. DISCOVERY PHASE: Find all images and GIF frames
+    # 1. DISCOVERY PHASE: Find all images
     images_to_process = []
-    print("\nScanning for images and GIF frames...")
+    print("\nScanning for images...")
     for filename in os.listdir(image_folder_path):
         file_path = os.path.join(image_folder_path, filename)
         original_name = os.path.splitext(filename)[0]
         if filename.lower().endswith((".png", ".jpg", ".jpeg", ".webp")):
             images_to_process.append({"path": file_path, "original_name": original_name, "type": "static"})
-        elif filename.lower().endswith(".gif"):
-            try:
-                with Image.open(file_path) as img:
-                    for i in range(img.n_frames):
-                        frame_name = f"{original_name}_frame_{i + 1}"
-                        images_to_process.append({"path": file_path, "frame_num": i, "original_name": frame_name, "type": "gif_frame"})
-            except Exception as e:
-                print(f"Could not process GIF '{filename}': {e}")
 
     # 2. NAMING PHASE: Get all user input upfront
     processed_info = []
@@ -183,10 +183,6 @@ def main():
         try:
             if info["type"] == "static":
                 image_obj = Image.open(info["path"])
-            elif info["type"] == "gif_frame":
-                gif_img = Image.open(info["path"])
-                gif_img.seek(info["frame_num"])
-                image_obj = gif_img.copy() # Work with a copy of the frame
 
             if image_obj and create_vtf_and_vmt(script_dir, image_obj, pack_name, info["compact_name"]):
                 successful_images.append(info)
