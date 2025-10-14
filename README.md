@@ -38,6 +38,6 @@ folder somewhere on your pc
     ├── 2.png
     └── 3.png
 ```
-3. Follow instructions the in the command line interface
+3. Follow the instructions in the command line interface
 4. After you are done in the same folder as the script a new folder `arc9_yourname_stickers` should appear, put this in your addons folder in Garry's mod to test it out
 5. Upload it using tools like [GMPublisher](https://github.com/WilliamVenner/gmpublisher)
