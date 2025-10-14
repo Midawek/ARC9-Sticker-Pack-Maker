@@ -23,7 +23,7 @@ ARC9 Sticker Pack Generator+ is a cli/python tool that allows you to create stic
 
 ## Stuff you need
 
-You may need to install `pip` by using this link https://pip.pypa.io/en/stable/installation/
+You may need to install `pip` by using this [link](https://pip.pypa.io/en/stable/installation/)
 
 
 ## How do I use it?!?!?!?!!?!?!
