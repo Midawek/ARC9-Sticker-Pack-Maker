@@ -19,14 +19,12 @@
 
 - `TBA` Full blown GIF Support
 
-
-
 ## Stuff you need
 
-You may need to install `pip` by using this [link](https://pip.pypa.io/en/stable/installation/), since the first time run needs to install a depency for the script to work
+You may need to install `pip` by using this [link](https://pip.pypa.io/en/stable/installation/), since the first time run needs to install a depency using `pip` for the script to work
 
 
-## How do I use it?!?!?!?!!?!?!
+## How do I use it?!?!?!?!!?!?! PLEASE IT'S BEEN HOURS AND I CAN'T FIGURE OUT HOW IT WORKS!!!!!
 Download the release here
 
 1. Put it in the same folder as the folder containing images.
@@ -41,3 +39,6 @@ folder somewhere on your pc
 3. Follow the instructions in the command line interface
 4. After you are done in the same folder as the script a new folder `arc9_yourname_stickers` should appear, put this in your addons folder in Garry's mod to test it out
 5. Upload it using tools like [GMPublisher](https://github.com/WilliamVenner/gmpublisher)
+
+## Where I can post issues/feedback?????
+https://github.com/Midawek/ARC9-Sticker-Pack-Maker/issues
