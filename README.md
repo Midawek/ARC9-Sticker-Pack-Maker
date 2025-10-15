@@ -1,8 +1,5 @@
-```
-┏━ ┏━┓┏━┓┏━╸┏━┓ ━┓   ┏━┓╺┳╸╻┏━╸╻┏ ┏━╸┏━┓   ┏━┓┏━┓┏━╸╻┏    ┏┳┓┏━┓╻┏ ┏━╸┏━┓ ╻  ╻ 
-┃  ┣━┫┣┳┛┃  ┗━┫  ┃   ┗━┓ ┃ ┃┃  ┣┻┓┣╸ ┣┳┛   ┣━┛┣━┫┃  ┣┻┓   ┃┃┃┣━┫┣┻┓┣╸ ┣┳┛╺╋╸╺╋╸
-┗━ ╹ ╹╹┗╸┗━╸┗━┛ ━┛   ┗━┛ ╹ ╹┗━╸╹ ╹┗━╸╹┗╸   ╹  ╹ ╹┗━╸╹ ╹   ╹ ╹╹ ╹╹ ╹┗━╸╹┗╸ ╹  ╹                                                                                                                                                                                                                                                     
-```
+<img width="1000" height="250" alt="arc9 sticker pack maker++ banner" src="https://github.com/user-attachments/assets/2fa6b191-d333-4a3f-b27d-09ea3beb1092" />
+
 # [ARC9] Sticker Pack Maker++
 ### ♡ Made by Midawek ♡ with love for ARC9 Community ♡
 [ARC9] Sticker Pack Maker++ is a cli/python tool that allows you to create stickers in bulk or invidually in to a ready to use addon.
