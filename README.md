@@ -14,6 +14,8 @@
 
 - No watermark:tm:
 
+- NO EMOJI SUPPORT, THE SCRIPTS SHITS ITSELF WHEN YOU TRY TO INPUT EMOJIS IN TO IT
+
 - `TBA` Full blown GIF Support
 
 - `TBA` Possibly more formats support
