@@ -21,6 +21,8 @@
 
 - `TBA` Possibly more formats support
 
+- `TBA` Add stickers to an already existing project so you don't need to merge manually
+
 ## Stuff you need before trying out the program
 
 You may need to install `pip` by using this [link](https://pip.pypa.io/en/stable/installation/), since the first time run needs to install a depency using `pip` for the script to work
