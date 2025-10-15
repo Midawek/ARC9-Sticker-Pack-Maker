@@ -19,7 +19,9 @@
 
 - `TBA` Full blown GIF Support
 
-## Stuff you need
+- `TBA` Possibly more formats support
+
+## Stuff you need before trying out the program
 
 You may need to install `pip` by using this [link](https://pip.pypa.io/en/stable/installation/), since the first time run needs to install a depency using `pip` for the script to work
 
