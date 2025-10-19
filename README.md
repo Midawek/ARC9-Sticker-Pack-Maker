@@ -10,25 +10,23 @@
 
 - Unattended import (Bulk support without need to invidually name and give description of every sticker)
 
-- Supports PNG, WEBP, JPG, JPEG images
+- Supports formats such as PNG, WEBP, JPG, JPEG images and many more!
 
 - No watermark:tm:
 
-- NO EMOJI SUPPORT, THE SCRIPTS SHITS ITSELF WHEN YOU TRY TO INPUT EMOJIS IN TO IT
+-  Full blown GIF Support
 
-- `TBA` Full blown GIF Support
+- Automatic project merging. No more manual merging and all of the problems that come with it!
 
-- `TBA` Possibly more formats support
+- `TBA` Options for holographic and etc only in GUI
 
-- `TBA` Add stickers to an already existing project so you don't need to merge manually
+## License
+[ARC9] Sticker Pack Maker++ falls under GPL-3.0 Licensing
+TL;DR: You are free to use, fork, redistribute the project as you wish. In commercial use you need to disclose the use of SPM++, I won't go after commisions. 
+I remain the full right to DMCA the product you provide if needed (if you used this project, not a fork)
+Besides, a little credit won't hurt ;3
 
-## Stuff you need before trying out the program
-
-You may need to install `pip` by using this [link](https://pip.pypa.io/en/stable/installation/), since the first time run needs to install a depency using `pip` for the script to work
-
-
-## How do I use it?!?!?!?!!?!?! PLEASE IT'S BEEN HOURS AND I CAN'T FIGURE OUT HOW IT WORKS!!!!!
-Download the release here
+## Instruction for CLI version
 
 1. Put it in the same folder as the folder containing images.
 ```
