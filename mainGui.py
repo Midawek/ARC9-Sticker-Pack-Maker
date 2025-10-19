@@ -3,11 +3,33 @@ from tkinter import filedialog, messagebox
 import os
 import sys
 import ctypes
-from PIL import Image, ImageTk
 
-# --- Dependency and path management ---
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'libs'))
-sys.path.insert(0, os.path.dirname(__file__))
+# --- Determine the base path for bundled assets and modules ---
+if getattr(sys, 'frozen', False):
+    # Running as a PyInstaller executable
+    BASE_PATH = sys._MEIPASS # Path to the temporary bundle folder for assets
+    OUTPUT_BASE_PATH = os.path.dirname(sys.executable) # Path to the actual .exe location for output
+else:
+    # Running as a script
+    BASE_PATH = os.path.dirname(os.path.abspath(__file__))
+    OUTPUT_BASE_PATH = BASE_PATH
+
+# --- Consolidate sys.path modification here ---
+# Add the script's base path (for arc9_sticker_creator.py and VTFLibWrapper)
+if BASE_PATH not in sys.path:
+    sys.path.insert(0, BASE_PATH)
+
+# Add the libs path (for PIL/Pillow)
+LIBS_PATH = os.path.join(BASE_PATH, 'libs')
+if LIBS_PATH not in sys.path:
+    sys.path.insert(0, LIBS_PATH)
+
+# --- Now import modules ---
+try:
+    from PIL import Image, ImageTk
+except ImportError:
+    messagebox.showerror("Import Error", "Pillow (PIL) is not found. Please ensure the 'libs' folder with Pillow is in the same directory as this script.")
+    sys.exit(1)
 
 try:
     import arc9_sticker_creator as core
@@ -22,16 +44,9 @@ class StickerCreatorGUI(tk.Tk):
         self.geometry("600x750")
         self.resizable(False, False)
 
-        # --- Data ---
-        self.processing_data = {}
-        self.active_widgets = []
-        self.image_photo = None
-
-        # --- Get script directory ---
-        if getattr(sys, 'frozen', False):
-            self.script_dir = os.path.dirname(sys.executable)
-        else:
-            self.script_dir = os.path.dirname(os.path.abspath(__file__))
+        # --- Get script directory (now BASE_PATH) ---
+        self.script_dir = BASE_PATH # For assets
+        self.output_dir = OUTPUT_BASE_PATH # For output folders
 
         # --- Load Custom Font ---
         try:
@@ -72,6 +87,8 @@ class StickerCreatorGUI(tk.Tk):
         container.grid_columnconfigure(0, weight=1)
 
         self.frames = {}
+        self.processing_data = {}
+
         for F in (SetupFrame, ProcessingFrame):
             frame = F(container, self)
             self.frames[F] = frame
@@ -84,7 +101,6 @@ class StickerCreatorGUI(tk.Tk):
         frame.tkraise()
 
     def start_processing(self, image_folder, pack_name):
-        # --- New Discovery Logic ---
         images_to_process = []
         for filename in sorted(os.listdir(image_folder)):
             file_path = os.path.join(image_folder, filename)
@@ -93,13 +109,9 @@ class StickerCreatorGUI(tk.Tk):
                 with Image.open(file_path) as img:
                     original_name = os.path.splitext(filename)[0]
                     is_animated = getattr(img, 'is_animated', False) and img.n_frames > 1
-                    images_to_process.append({
-                        "path": file_path, 
-                        "original_name": original_name, 
-                        "type": "animated" if is_animated else "static"
-                    })
+                    images_to_process.append({"path": file_path, "original_name": original_name, "type": "animated" if is_animated else "static"})
             except (IOError, SyntaxError):
-                continue # Skip files that are not images
+                continue
 
         if not images_to_process:
             messagebox.showinfo("Info", "No images found in the selected folder.")
@@ -166,6 +178,7 @@ class SetupFrame(tk.Frame):
         self.pack_name_entry.grid(row=1, column=1, columnspan=1, padx=5, pady=10, sticky="ew", ipady=4)
         self.pack_name_entry.bind("<KeyRelease>", lambda e: self.hide_caution())
 
+        # --- Caution Icon ---
         try:
             caution_path = os.path.join(self.controller.script_dir, 'Caution.png')
             img = Image.open(caution_path).resize((20, 20), Image.LANCZOS)
@@ -190,10 +203,13 @@ class SetupFrame(tk.Frame):
     def validate(self):
         pack_name_ok = bool(self.pack_name_var.get().strip())
         folder_ok = bool(self.folder_path_var.get().strip())
+
         if not pack_name_ok:
             self.caution_label.grid(row=1, column=2, padx=(0, 15), sticky='w')
+        
         if not folder_ok:
             messagebox.showwarning("Validation Error", "Image Folder cannot be empty.")
+
         return pack_name_ok and folder_ok
 
     def hide_caution(self):
@@ -212,31 +228,46 @@ class ProcessingFrame(tk.Frame):
         self.current_index = 0
         self.image_photo = None
 
-        self.header_label = tk.Label(self, text="", bg=controller.BG_COLOR, fg=controller.FG_COLOR, font=controller.FONT_HEADER)
+        # --- Widgets ---
+        self.header_label = tk.Label(self, text="Processing Image 1 of N", 
+                                     bg=controller.BG_COLOR, fg=controller.FG_COLOR,
+                                     font=controller.FONT_HEADER)
         self.header_label.pack(pady=(5, 15))
 
         self.image_label = tk.Label(self, bg=controller.ENTRY_BG, anchor='center')
         self.image_label.pack(pady=10, padx=10, fill="both", expand=True)
 
-        details_frame = tk.LabelFrame(self, text="2. Enter Details", bg=controller.BG_COLOR, fg=controller.FG_COLOR, font=controller.FONT_BOLD, relief='flat', borderwidth=2)
+        details_frame = tk.LabelFrame(self, text="2. Enter Details", 
+                                      bg=controller.BG_COLOR, fg=controller.FG_COLOR,
+                                      font=controller.FONT_BOLD, relief='flat', borderwidth=2)
         details_frame.pack(padx=10, pady=10, fill="x", ipady=5)
         details_frame.columnconfigure(1, weight=1)
 
         tk.Label(details_frame, text="Display Name", bg=controller.BG_COLOR, fg=controller.FG_COLOR, font=controller.FONT_NORMAL).grid(row=0, column=0, padx=15, pady=10, sticky="w")
         self.print_name_var = tk.StringVar()
-        tk.Entry(details_frame, textvariable=self.print_name_var, bg=controller.ENTRY_BG, fg=controller.FG_COLOR, relief='flat', font=controller.FONT_NORMAL).grid(row=0, column=1, padx=(5,15), pady=10, sticky="ew", ipady=4)
+        tk.Entry(details_frame, textvariable=self.print_name_var,
+                 bg=controller.ENTRY_BG, fg=controller.FG_COLOR, relief='flat', font=controller.FONT_NORMAL).grid(row=0, column=1, padx=(5,15), pady=10, sticky="ew", ipady=4)
 
         tk.Label(details_frame, text="Description", bg=controller.BG_COLOR, fg=controller.FG_COLOR, font=controller.FONT_NORMAL).grid(row=1, column=0, padx=15, pady=10, sticky="w")
         self.desc_var = tk.StringVar()
-        tk.Entry(details_frame, textvariable=self.desc_var, bg=controller.ENTRY_BG, fg=controller.FG_COLOR, relief='flat', font=controller.FONT_NORMAL).grid(row=1, column=1, padx=(5,15), pady=10, sticky="ew", ipady=4)
+        tk.Entry(details_frame, textvariable=self.desc_var,
+                 bg=controller.ENTRY_BG, fg=controller.FG_COLOR, relief='flat', font=controller.FONT_NORMAL).grid(row=1, column=1, padx=(5,15), pady=10, sticky="ew", ipady=4)
 
+        # --- Buttons ---
         button_frame = tk.Frame(self, bg=controller.BG_COLOR)
         button_frame.pack(pady=20, padx=10, fill="x")
         
-        back_button = tk.Button(button_frame, text="< Back to Setup", bg=controller.BTN_SECONDARY_BG, fg='white', activebackground='#777777', activeforeground='white', command=lambda: controller.show_frame(SetupFrame), relief='flat', borderwidth=0, font=controller.FONT_BOLD, padx=10, pady=8)
+        back_button = tk.Button(button_frame, text="< Back to Setup", 
+                                bg=controller.BTN_SECONDARY_BG, fg='white',
+                                activebackground='#777777', activeforeground='white',
+                                command=lambda: controller.show_frame(SetupFrame),
+                                relief='flat', borderwidth=0, font=controller.FONT_BOLD, padx=10, pady=8)
         back_button.pack(side="left")
 
-        self.next_button = tk.Button(button_frame, text="Next Image >", bg=controller.BTN_PRIMARY_BG, fg='white', activebackground=controller.BTN_PRIMARY_ACTIVE_BG, activeforeground='white', command=self.next_image, relief='flat', borderwidth=0, font=controller.FONT_BOLD, padx=10, pady=8)
+        self.next_button = tk.Button(button_frame, text="Next Image >", 
+                                     bg=controller.BTN_PRIMARY_BG, fg='white',
+                                     activebackground=controller.BTN_PRIMARY_ACTIVE_BG, activeforeground='white',
+                                     command=self.next_image, relief='flat', borderwidth=0, font=controller.FONT_BOLD, padx=10, pady=8)
         self.next_button.pack(side="right")
 
     def start(self):
@@ -253,7 +284,9 @@ class ProcessingFrame(tk.Frame):
         try:
             self.image_label.after(50, lambda: self.load_image_preview(image_info["path"]))
         except Exception as e:
-            self.image_label.config(text="Error preparing image preview:\n" + str(e), image='')
+            error_text = "Error preparing image preview:\n" + str(e)
+            self.image_label.config(text=error_text, image='')
+            print(error_text)
 
         self.print_name_var.set(core.remove_emojis(image_info["original_name"].replace('_', ' ').title()))
         self.desc_var.set("")
@@ -266,7 +299,7 @@ class ProcessingFrame(tk.Frame):
     def load_image_preview(self, path):
         try:
             w, h = self.image_label.winfo_width(), self.image_label.winfo_height()
-            if w <= 1 or h <= 1: 
+            if w <= 1 or h <= 1: # Widget not drawn yet
                 self.image_label.after(100, lambda: self.load_image_preview(path))
                 return
             img = Image.open(path).convert("RGBA")
@@ -274,15 +307,17 @@ class ProcessingFrame(tk.Frame):
             self.image_photo = ImageTk.PhotoImage(img)
             self.image_label.config(image=self.image_photo, text="")
         except Exception as e:
-            self.image_label.config(text="Error loading image:\n" + str(e), image='')
+            error_text = "Error loading image:\n" + str(e)
+            self.image_label.config(text=error_text, image='')
+            print(error_text)
 
     def next_image(self):
-        print_name = core.remove_emojis(self.print_name_var.get())
+        current_image_info = self.controller.processing_data["images"][self.current_index]
+        print_name = self.print_name_var.get()
         if not print_name.strip():
             messagebox.showwarning("Validation Error", "Display Name cannot be empty.")
             return
 
-        current_image_info = self.controller.processing_data["images"][self.current_index]
         compact_name = core.sanitize_for_filename(print_name)
         
         self.controller.processing_data["processed_info"].append({
@@ -309,14 +344,15 @@ class ProcessingFrame(tk.Frame):
             return
 
         try:
-            core.create_addon_structure(self.controller.script_dir, pack_name)
+            core.create_addon_structure(self.controller.output_dir, pack_name)
+
             successful_images = []
             for info in processed_info:
-                if core.process_image_to_vtf(self.controller.script_dir, info, pack_name, info["compact_name"]):
+                if core.process_image_to_vtf(self.controller.output_dir, info, pack_name, info["compact_name"]):
                     successful_images.append(info)
             
             if successful_images:
-                core.create_lua_script(self.controller.script_dir, pack_name, successful_images)
+                core.create_lua_script(self.controller.output_dir, pack_name, successful_images)
                 messagebox.showinfo("Success", f"Successfully created/updated the '{pack_name}' sticker pack!\n\nThank you for using the ARC9 Sticker Pack Maker! ♡")
             else:
                 messagebox.showwarning("Warning", "No images were successfully converted.\n\nThank you for using the creator.")
