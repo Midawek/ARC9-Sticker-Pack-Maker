@@ -45,8 +45,9 @@ folder somewhere on your pc
 1. Run the application
 2. Do the steps
 3. The ready to use folder will be avaible in the same folder as the application
-4. Upload it using tools like [GMPublisher](https://github.com/WilliamVenner/gmpublisher)
-It's that easy!
+4. Upload it using tools like [GMPublisher](https://github.com/WilliamVenner/gmpublisher)<br>
+
+### It's that easy!
 
 ## Where I can post issues/feedback?????
 https://github.com/Midawek/ARC9-Sticker-Pack-Maker/issues
