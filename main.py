@@ -2,27 +2,44 @@ import os
 import sys
 import re
 import subprocess
-import tempfile
-import shutil
 from ctypes import cast, POINTER, c_byte
 
-# --- Dependency Management ---
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'libs'))
+# --- Determine the base path for bundled assets and modules ---
+if getattr(sys, 'frozen', False):
+    # Running as a PyInstaller executable
+    BASE_PATH = sys._MEIPASS # Path to the temporary bundle folder for assets
+    # For CLI output, we want the directory of the actual .exe
+    OUTPUT_ADDON_ROOT = os.path.dirname(sys.executable)
+else:
+    # Running as a script
+    BASE_PATH = os.path.dirname(os.path.abspath(__file__))
+    OUTPUT_ADDON_ROOT = BASE_PATH
 
+# --- Consolidate sys.path modification here ---
+# Add the script's base path (for VTFLibWrapper)
+if BASE_PATH not in sys.path:
+    sys.path.insert(0, BASE_PATH)
+
+# Add the libs path (for PIL/Pillow)
+LIBS_PATH = os.path.join(BASE_PATH, 'libs')
+if LIBS_PATH not in sys.path:
+    sys.path.insert(0, LIBS_PATH)
+
+# --- Dependency Management ---
 try:
     from PIL import Image, ImageSequence
 except ImportError:
-    print("ERROR: Pillow (PIL) is not found in the 'libs' folder.")
+    print("ERROR: Pillow (PIL) is not found in the 'libs' folder or Python path.")
+    print("Please ensure the 'libs' folder with Pillow is in the same directory as this script.")
     input("\nPress Enter to exit.")
     sys.exit(1)
-
-sys.path.insert(0, os.path.dirname(__file__))
 
 try:
     import VTFLibWrapper.VTFLib as VTFLib
     import VTFLibWrapper.VTFLibEnums as VTFLibEnums
 except ImportError as e:
     print("ERROR: Could not import the VTFLib wrapper.")
+    print("Please ensure the 'VTFLibWrapper' folder (containing VTFLib.py, etc.) is in the same directory as this script.")
     input("\nPress Enter to exit.")
     sys.exit(1)
 
@@ -203,7 +220,7 @@ def create_lua_script(base_path, pack_name, processed_images):
 
         for info in processed_images:
             print_name = remove_emojis(info["print_name"]).replace('"', '\"')
-            description = remove_emojis(info["description"]).replace(']]', '] ]')
+            description = remove_emojis(info["description"]).replace(']]', '] ]') # Avoid breaking multiline string
 
             f.write(f'''SPM = {{}}
 SPM.PrintName = "{print_name}"
@@ -213,9 +230,10 @@ SPM.Description = [[{description}]]
 SPM.Icon = Material("stickers/{pack_name}/{info["compact_name"]}")
 
 SPM.Free = true
-SPM.Category = "stickers"
 
+SPM.Category = "stickers"
 SPM.Folder = "{pack_name}"
+
 SPM.StickerMaterial = "stickers/{pack_name}/{info["compact_name"]}"
 
 ARC9.LoadAttachment(SPM, "sticker_{pack_name}_{info["compact_name"]}")
@@ -230,24 +248,31 @@ def main():
 ┗━ ╹ ╹╹┗╸┗━╸┗━┛ ━┛   ┗━┛ ╹ ╹┗━╸╹ ╹┗━╸╹┗╸   ╹  ╹ ╹┗━╸╹ ╹   ╹ ╹╹ ╹╹ ╹┗━╸╹┗╸ ╹  ╹ 
         ♡ by Midawek ♡ Made with love for ARC9 Community ♡
       """
+                                                                                                                                                                                 
     print(f"\033[95m{logo}\033[0m")
     
+    # Determine the base directory for output
     if getattr(sys, 'frozen', False):
-        script_dir = os.path.dirname(sys.executable)
+        output_base_path = os.path.dirname(sys.executable)
     else:
-        script_dir = os.path.dirname(os.path.abspath(__file__))
+        output_base_path = os.path.dirname(os.path.abspath(__file__))
 
     image_folder_name = input("Enter the name of the folder with images: ")
     pack_name_input = input("Enter the name of the pack: ")
     pack_name = remove_emojis(pack_name_input)
 
-    image_folder_path = os.path.join(script_dir, image_folder_name)
+    # Resolve image folder path relative to current working directory if not absolute
+    if os.path.isabs(image_folder_name):
+        image_folder_path = image_folder_name
+    else:
+        image_folder_path = os.path.join(os.getcwd(), image_folder_name)
 
     if not os.path.isdir(image_folder_path):
         print(f"Error: Folder '{image_folder_path}' not found.")
         input("\nPress Enter to exit.")
         return
 
+    # 1. DISCOVERY PHASE: Try to open all files with Pillow
     images_to_process = []
     print("\nScanning for images...")
     for filename in sorted(os.listdir(image_folder_path)):
@@ -264,8 +289,9 @@ def main():
                 })
                 print(f"Found {'animated' if is_animated else 'static'} image: {filename}")
         except (IOError, SyntaxError):
-            continue
+            continue # Skip files that are not images
 
+    # 2. NAMING PHASE
     processed_info = []
     manual_naming = input("\nManually name each sticker and add a description? (y/n): ").lower().strip() == 'y'
     for item in images_to_process:
@@ -287,17 +313,19 @@ def main():
         item["compact_name"] = compact_name
         processed_info.append(item)
 
-    create_addon_structure(script_dir, pack_name)
+    # 3. CREATION PHASE
+    create_addon_structure(output_base_path, pack_name)
     successful_images = []
     print("\nStarting image conversion...")
     for info in processed_info:
         print(f"Processing '{info['original_name']}' -> '{info['compact_name']}.vtf'...")
-        if process_image_to_vtf(script_dir, info, pack_name, info["compact_name"]):
+        if process_image_to_vtf(output_base_path, info, pack_name, info["compact_name"]):
             successful_images.append(info)
 
+    # 4. FINALIZATION PHASE
     if successful_images:
         print("\nConversion complete. Now generating Lua script...")
-        create_lua_script(script_dir, pack_name, successful_images)
+        create_lua_script(output_base_path, pack_name, successful_images)
         print(f"\nSuccessfully created the '{pack_name}' sticker pack!")
     else:
         print("\nNo images were successfully converted. Addon creation aborted.")
