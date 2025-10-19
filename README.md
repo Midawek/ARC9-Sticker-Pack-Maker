@@ -21,9 +21,9 @@
 - `TBA` Options for holographic and etc only in GUI
 
 ## License
-[ARC9] Sticker Pack Maker++ falls under GPL-3.0 Licensing
-TL;DR: You are free to use, fork, redistribute the project as you wish. In commercial use you need to disclose the use of SPM++, I won't go after commisions. 
-I remain the full right to DMCA the product you provide if needed (if you used this project, not a fork)
+[ARC9] Sticker Pack Maker++ falls under GPL-3.0 Licensing<br>
+TL;DR: You are free to use, fork, redistribute the project as you wish. In commercial use you need to disclose the use of SPM++, I won't go after commisions. <br>
+I remain the full right to DMCA the product you provide if needed (if you used this project, not a fork)<br>
 Besides, a little credit won't hurt ;3
 
 ## Instruction for CLI version
@@ -40,6 +40,13 @@ folder somewhere on your pc
 3. Follow the instructions in the command line interface
 4. After you are done in the same folder as the script a new folder `arc9_yourname_stickers` should appear, put this in your addons folder in Garry's mod to test it out
 5. Upload it using tools like [GMPublisher](https://github.com/WilliamVenner/gmpublisher)
+
+## Instructions for GUI version
+1. Run the application
+2. Do the steps
+3. The ready to use folder will be avaible in the same folder as the application
+
+It's that easy!
 
 ## Where I can post issues/feedback?????
 https://github.com/Midawek/ARC9-Sticker-Pack-Maker/issues
