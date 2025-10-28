@@ -28,7 +28,7 @@ Thanks arctic <3<br>
 
 ## Which version should you pick?
 - CLI version - if you need to go through hundreds of images to put in as stickers without much naming or description
-- GUI version - if you plan on making a small pack or something ambitious and need to name and give a description to every sticker, even subfolders and effetcs
+- GUI version - if you plan on making a small pack or something ambitious and need to name and give a description to every sticker, even subfolders and effects
 
 ## License
 [ARC9] Sticker Pack Maker++ falls under GPL-3.0 Licensing<br>
