@@ -24,6 +24,8 @@ Thanks arctic <3<br>
 
 - `TBA` Subfolders.
 
+- `TBA` Fingerprinting
+
 ## Which version should you pick?
 - CLI version - if you need to go through hundreds of images to put in as stickers without much naming or description
 - GUI version - if you plan on making a small pack or something ambitious and need to name and give a description to every sticker, even subfolders and effetcs
