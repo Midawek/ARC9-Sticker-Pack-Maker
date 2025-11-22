@@ -16,14 +16,13 @@ else:
     OUTPUT_ADDON_ROOT = BASE_PATH
 
 # --- Consolidate sys.path modification here ---
-# Add the script's base path (for VTFLibWrapper)
-if BASE_PATH not in sys.path:
-    sys.path.insert(0, BASE_PATH)
-
-# Add the libs path (for PIL/Pillow)
 LIBS_PATH = os.path.join(BASE_PATH, 'libs')
 if LIBS_PATH not in sys.path:
     sys.path.insert(0, LIBS_PATH)
+
+# Add the script's base path (for VTFLibWrapper)
+if BASE_PATH not in sys.path:
+    sys.path.insert(1, BASE_PATH) # Insert at index 1 after LIBS_PATH
 
 # --- Dependency Management ---
 try:
@@ -45,72 +44,87 @@ except ImportError as e:
 
 # --- Main Application Logic ---
 
+# Compile regex patterns once at module level for better performance
+_EMOJI_PATTERN = re.compile(
+    "["
+    "\U0001F600-\U0001F64F"  # emoticons
+    "\U0001F300-\U0001F5FF"  # symbols & pictographs
+    "\U0001F680-\U0001F6FF"  # transport & map symbols
+    "\U0001F1E0-\U0001F1FF"  # flags (iOS)
+    "\U00002700-\U000027BF"  # Dingbats
+    "\U000024C2-\U0001F251" 
+    "\U0001f926-\U0001f937"
+    "\U00010000-\U0010ffff"
+    "\u2640-\u2642"
+    "\u2600-\u2B55"
+    "\u200d"
+    "\u23cf"
+    "\u23e9"
+    "\u231a"
+    "\ufe0f"  # dingbats
+    "\u3030"
+    "]+", flags=re.UNICODE)
+
+_FILENAME_SANITIZE_PATTERN = re.compile(r'[^a-zA-Z0-9]')
+
 def remove_emojis(text):
     """Removes a wide range of emojis and symbols from a string."""
     if not text: return ""
-    # A more comprehensive regex for emojis and symbols
-    emoji_pattern = re.compile(
-        "["
-        "\U0001F600-\U0001F64F"  # emoticons
-        "\U0001F300-\U0001F5FF"  # symbols & pictographs
-        "\U0001F680-\U0001F6FF"  # transport & map symbols
-        "\U0001F1E0-\U0001F1FF"  # flags (iOS)
-        "\U00002700-\U000027BF"  # Dingbats
-        "\U000024C2-\U0001F251" 
-        "\U0001f926-\U0001f937"
-        "\U00010000-\U0010ffff"
-        "\u2640-\u2642"
-        "\u2600-\u2B55"
-        "\u200d"
-        "\u23cf"
-        "\u23e9"
-        "\u231a"
-        "\ufe0f"  # dingbats
-        "\u3030"
-        "]+", flags=re.UNICODE)
-    return emoji_pattern.sub(r'', text)
+    return _EMOJI_PATTERN.sub(r'', text)
 
 def sanitize_for_filename(name):
     """Removes emojis, spaces, special characters, and converts to lowercase for filenames."""
     name_no_emoji = remove_emojis(name)
-    return re.sub(r'[^a-zA-Z0-9]', '', name_no_emoji).lower()
+    return _FILENAME_SANITIZE_PATTERN.sub('', name_no_emoji).lower()
 
 def letterbox_image(img, max_size=512):
-    """Resizes an image to fit within a square, power-of-two canvas, padding with transparency.
-    If the image is square, it's scaled up to max_size to appear larger in-game.
     """
-    # New logic: If image is square, scale it up to the max size for a larger sticker.
-    if img.width == img.height:
-        img = img.resize((max_size, max_size), Image.LANCZOS)
-    # Existing logic for non-square or oversized images
-    elif img.width > max_size or img.height > max_size:
-        img.thumbnail((max_size, max_size), Image.LANCZOS)
-    
-    largest_dim = max(img.width, img.height)
-    if largest_dim == 0: return None # Skip empty frames
-    
-    # Find the next power of two for the canvas
-    canvas_size = 1
-    while canvas_size < largest_dim:
-        canvas_size *= 2
-        
-    canvas = Image.new("RGBA", (canvas_size, canvas_size), (0, 0, 0, 0))
-    paste_x = (canvas_size - img.width) // 2
-    paste_y = (canvas_size - img.height) // 2
-    canvas.paste(img, (paste_x, paste_y))
+    Resizes and letterboxes an image to a square power-of-two canvas.
+    Scales the image to have its largest dimension equal to max_size,
+    preserving aspect ratio, to ensure stickers are large and not stretched.
+    """
+    w, h = img.width, img.height
+    if w == 0 or h == 0:
+        return None # Skip empty frames
+
+    # 1. Calculate scaling factor to make the largest dimension match max_size
+    max_dim = max(w, h)
+    if max_dim == max_size:
+        # Already the right size, just need to center on canvas
+        new_w, new_h = w, h
+        img_resized = img
+    else:
+        scale = max_size / max_dim
+        new_w, new_h = int(w * scale), int(h * scale)
+        # 2. Resize the image with the new dimensions
+        # Using LANCZOS for high-quality resizing
+        img_resized = img.resize((new_w, new_h), Image.LANCZOS)
+
+    # 3. Create a transparent square canvas. Since max_size is a power of two,
+    #    we can use it directly for the canvas size.
+    canvas = Image.new("RGBA", (max_size, max_size), (0, 0, 0, 0))
+
+    # 4. Paste the resized image onto the center of the canvas
+    paste_x = (max_size - new_w) // 2
+    paste_y = (max_size - new_h) // 2
+    canvas.paste(img_resized, (paste_x, paste_y))
+
     return canvas
 
-def create_addon_structure(base_path, pack_name):
+def create_addon_structure(output_path, pack_name):
     """Create the necessary directory structure for the ARC9 addon."""
-    os.makedirs(os.path.join(base_path, f"arc9_{pack_name}_stickers", "lua", "arc9", "common", "attachments_bulk"), exist_ok=True)
-    os.makedirs(os.path.join(base_path, f"arc9_{pack_name}_stickers", "materials", "stickers", pack_name), exist_ok=True)
+    os.makedirs(os.path.join(output_path, f"arc9_{pack_name}_stickers", "lua", "arc9", "common", "attachments_bulk"), exist_ok=True)
 
-def create_vmt(vmt_path, pack_name, compact_name, is_animated, framerate):
+def create_vmt(vmt_path, pack_name, subfolder, compact_name, is_animated, framerate):
     """Creates a .vmt file for either a static or animated sticker."""
-    material_path = f"stickers/{pack_name}/{compact_name}".replace("\\", "/")
+    path_parts = ["stickers", pack_name, compact_name]
+    material_path = "/".join(path_parts).replace("\\", "/")
+
+    fingerprint = "// Generated by ARC9 Sticker Pack Maker++ by Midawek"
 
     if is_animated:
-        vmt_content = f'''"VertexLitGeneric"
+        vmt_content = f'''{fingerprint}
+"VertexLitGeneric"
 {{
     "$basetexture" "{material_path}"
     "$alphatest" "1"
@@ -127,7 +141,8 @@ def create_vmt(vmt_path, pack_name, compact_name, is_animated, framerate):
     }}
 }}'''
     else:
-        vmt_content = f'''"VertexLitGeneric"
+        vmt_content = f'''{fingerprint}
+"VertexLitGeneric"
 {{
     "$basetexture" "{material_path}"
     "$alphatest" "1"
@@ -137,11 +152,12 @@ def create_vmt(vmt_path, pack_name, compact_name, is_animated, framerate):
     with open(vmt_path, "w", encoding="utf-8") as f:
         f.write(vmt_content)
 
-def process_image_to_vtf(base_path, image_info, pack_name, compact_name):
+def process_image_to_vtf(output_path, image_info, pack_name, compact_name, sticker_dir):
     """Processes a given image (static or animated) and creates VTF and VMT files."""
-    addon_root = os.path.join(base_path, f"arc9_{pack_name}_stickers")
-    vtf_path = os.path.join(addon_root, "materials", "stickers", pack_name, f"{compact_name}.vtf")
-    vmt_path = os.path.join(addon_root, "materials", "stickers", pack_name, f"{compact_name}.vmt")
+    subfolder = image_info.get("subfolder", "")
+    
+    vtf_path = os.path.join(sticker_dir, f"{compact_name}.vtf")
+    vmt_path = os.path.join(sticker_dir, f"{compact_name}.vmt")
     
     vtf_lib = VTFLib.VTFLib()
     try:
@@ -157,8 +173,11 @@ def process_image_to_vtf(base_path, image_info, pack_name, compact_name):
                 # --- CORRECT ANIMATED VTF CREATION USING THE WRAPPER ---
                 frames = []
                 durations = []
+                # Convert to RGBA once for all frames if possible, otherwise convert per frame
                 for frame in ImageSequence.Iterator(img):
-                    letterboxed_frame = letterbox_image(frame.convert("RGBA"))
+                    # Only convert if not already RGBA
+                    frame_rgba = frame if frame.mode == 'RGBA' else frame.convert("RGBA")
+                    letterboxed_frame = letterbox_image(frame_rgba)
                     if letterboxed_frame:
                         frames.append(letterboxed_frame)
                         durations.append(frame.info.get('duration', 100))
@@ -181,10 +200,12 @@ def process_image_to_vtf(base_path, image_info, pack_name, compact_name):
                     # Use the correct method name: set_image_data
                     vtf_lib.set_image_data(i, 0, 0, 0, frame_buffer_ptr)
 
-                create_vmt(vmt_path, pack_name, compact_name, True, framerate)
+                create_vmt(vmt_path, pack_name, subfolder, compact_name, True, framerate)
             else:
                 # --- Static Image Processing ---
-                texture = letterbox_image(img.convert("RGBA"))
+                # Only convert if not already RGBA
+                img_rgba = img if img.mode == 'RGBA' else img.convert("RGBA")
+                texture = letterbox_image(img_rgba)
                 w, h = texture.size
                 image_bytes = texture.tobytes()
                 image_buffer_ptr = cast(image_bytes, POINTER(c_byte))
@@ -192,7 +213,7 @@ def process_image_to_vtf(base_path, image_info, pack_name, compact_name):
                 if not vtf_lib.image_create_single(w, h, image_buffer_ptr, options):
                     raise Exception(f"image_create_single failed: {vtf_lib.get_last_error()}")
                 
-                create_vmt(vmt_path, pack_name, compact_name, False, 0)
+                create_vmt(vmt_path, pack_name, subfolder, compact_name, False, 0)
 
             # 3. Save the final VTF file
             if not vtf_lib.image_save(vtf_path):
@@ -207,38 +228,52 @@ def process_image_to_vtf(base_path, image_info, pack_name, compact_name):
         if vtf_lib:
             vtf_lib.shutdown()
 
-def create_lua_script(base_path, pack_name, processed_images):
+def create_lua_script(output_path, pack_name, processed_images):
     """Create or append to the Lua script for the ARC9 addon from pre-processed info."""
-    addon_root = os.path.join(base_path, f"arc9_{pack_name}_stickers")
+    addon_root = os.path.join(output_path, f"arc9_{pack_name}_stickers")
     lua_path = os.path.join(addon_root, "lua", "arc9", "common", "attachments_bulk", f"a9sm_{pack_name}.lua")
 
     file_existed = os.path.exists(lua_path) and os.path.getsize(lua_path) > 0
 
-    with open(lua_path, "a", encoding="utf-8") as f:
-        if file_existed:
-            f.write("\n")
+    # Build Lua script content in memory for better performance
+    lua_content_parts = []
+    for i, info in enumerate(processed_images):
+        print_name = remove_emojis(info["print_name"]).replace('"', '\\"')
+        description = remove_emojis(info["description"]).replace(']]>', '] ]') # Avoid breaking multiline string
+        subfolder = info.get("subfolder", "")
 
-        for info in processed_images:
-            print_name = remove_emojis(info["print_name"]).replace('"', '\"')
-            description = remove_emojis(info["description"]).replace(']]', '] ]') # Avoid breaking multiline string
+        # Add separator if this isn't the very first sticker in a new file
+        if file_existed or i > 0:
+            lua_content_parts.append("\n---\n\n")
 
-            f.write(f'''SPM = {{}}
+        # Construct the folder path for the ATT table
+        folder_value = pack_name
+        if subfolder:
+            folder_value = f"{pack_name}/{subfolder.replace('\\', '/')}"
+
+        # Construct the material path for the sticker (without subfolder)
+        sticker_material = f"stickers/{pack_name}/{info['compact_name']}"
+        compact_name_upper = info["compact_name"].upper()
+
+        lua_content_parts.append(f'''SPM = {{}}
+
 SPM.PrintName = "{print_name}"
-SPM.CompactName = "{info["compact_name"].upper()}"
+SPM.CompactName = "{compact_name_upper}"
 SPM.Description = [[{description}]]
 
-SPM.Icon = Material("stickers/{pack_name}/{info["compact_name"]}")
+SPM.Icon = Material("{sticker_material}")
 
 SPM.Free = true
-
 SPM.Category = "stickers"
-SPM.Folder = "{pack_name}"
+SPM.Folder = "{folder_value}"
 
-SPM.StickerMaterial = "stickers/{pack_name}/{info["compact_name"]}"
+SPM.StickerMaterial = "{sticker_material}"
 
-ARC9.LoadAttachment(SPM, "sticker_{pack_name}_{info["compact_name"]}")
+ARC9.LoadAttachment(SPM, "sticker_{pack_name}_{info["compact_name"]}")''')
 
-''')
+    # Write all content at once
+    with open(lua_path, "a", encoding="utf-8") as f:
+        f.write(''.join(lua_content_parts))
 
 def main():
     """Main script execution flow."""
@@ -248,14 +283,13 @@ def main():
 ┗━ ╹ ╹╹┗╸┗━╸┗━┛ ━┛   ┗━┛ ╹ ╹┗━╸╹ ╹┗━╸╹┗╸   ╹  ╹ ╹┗━╸╹ ╹   ╹ ╹╹ ╹╹ ╹┗━╸╹┗╸ ╹  ╹ 
         ♡ by Midawek ♡ Made with love for ARC9 Community ♡
       """
-                                                                                                                                                                                 
     print(f"\033[95m{logo}\033[0m")
     
     # Determine the base directory for output
     if getattr(sys, 'frozen', False):
-        output_base_path = os.path.dirname(sys.executable)
+        output_path = os.path.dirname(sys.executable)
     else:
-        output_base_path = os.path.dirname(os.path.abspath(__file__))
+        output_path = os.path.dirname(os.path.abspath(__file__))
 
     image_folder_name = input("Enter the name of the folder with images: ")
     pack_name_input = input("Enter the name of the pack: ")
@@ -314,18 +348,25 @@ def main():
         processed_info.append(item)
 
     # 3. CREATION PHASE
-    create_addon_structure(output_base_path, pack_name)
+    create_addon_structure(output_path, pack_name)
+    
+    # Create sticker directory once (shared by all images)
+    addon_root = os.path.join(output_path, f"arc9_{pack_name}_stickers")
+    sticker_dir = os.path.join(addon_root, "materials", "stickers", pack_name)
+    os.makedirs(sticker_dir, exist_ok=True)
+    
     successful_images = []
     print("\nStarting image conversion...")
-    for info in processed_info:
-        print(f"Processing '{info['original_name']}' -> '{info['compact_name']}.vtf'...")
-        if process_image_to_vtf(output_base_path, info, pack_name, info["compact_name"]):
+    total_images = len(processed_info)
+    for i, info in enumerate(processed_info):
+        print(f"({i+1}/{total_images}) Processing '''{info['original_name']}''' -> '''{info['compact_name']}.vtf'''...")
+        if process_image_to_vtf(output_path, info, pack_name, info["compact_name"], sticker_dir):
             successful_images.append(info)
 
     # 4. FINALIZATION PHASE
     if successful_images:
         print("\nConversion complete. Now generating Lua script...")
-        create_lua_script(output_base_path, pack_name, successful_images)
+        create_lua_script(output_path, pack_name, successful_images)
         print(f"\nSuccessfully created the '{pack_name}' sticker pack!")
     else:
         print("\nNo images were successfully converted. Addon creation aborted.")
