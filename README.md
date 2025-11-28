@@ -6,7 +6,11 @@
 <p align="center"><img width="701" height="537" alt="approved" src="https://github.com/user-attachments/assets/54e99ef6-f60a-4800-9b33-73093321d236" /></p>
 Thanks arctic <3<br>
 
-    
+## WARNING!
+Build 3 has been a lot of work to push in to an exe file that anyone can just use instead of bothering with, if you have good knowledge with Nuitka or cx_Freeze please contact me (midawek at pm dot me) and explain it to my stupid ass.
+The problem: Nuitka from what I've seen doesn't want to bundle in VTFLibWrapper :v,
+Sorry for all of the delays, I'll try to do open it as fast as I can, however if you have some python knowledge, you can use build 3 as I try to keep the source code up to date ^^
+
 ## Features
 
 - IT IS NOT A FORK but based off the original.
