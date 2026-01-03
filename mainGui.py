@@ -1,3 +1,4 @@
+import hook_vtflib
 import sys
 import os
 import ctypes
@@ -7,8 +8,14 @@ import json
 
 # --- Determine the base path for bundled assets and modules ---
 if getattr(sys, 'frozen', False):
-    BASE_PATH = sys._MEIPASS
-    OUTPUT_BASE_PATH = os.path.dirname(sys.executable)
+    # PyInstaller creates a temp folder and stores path in _MEIPASS
+    if hasattr(sys, '_MEIPASS'):
+        BASE_PATH = sys._MEIPASS
+        OUTPUT_BASE_PATH = os.path.dirname(sys.executable)
+    else:
+        # When running as a Nuitka executable, the base path is the directory containing the .exe
+        BASE_PATH = os.path.dirname(sys.executable)
+        OUTPUT_BASE_PATH = BASE_PATH
 else:
     BASE_PATH = os.path.dirname(os.path.abspath(__file__))
     OUTPUT_BASE_PATH = BASE_PATH
