@@ -1,3 +1,4 @@
+import hook_vtflib
 import os
 import sys
 import re
@@ -6,10 +7,9 @@ from ctypes import cast, POINTER, c_byte
 
 # --- Determine the base path for bundled assets and modules ---
 if getattr(sys, 'frozen', False):
-    # Running as a PyInstaller executable
-    BASE_PATH = sys._MEIPASS # Path to the temporary bundle folder for assets
-    # For CLI output, we want the directory of the actual .exe
-    OUTPUT_ADDON_ROOT = os.path.dirname(sys.executable)
+    # When running as a Nuitka executable, the base path is the directory containing the .exe
+    BASE_PATH = os.path.dirname(sys.executable)
+    OUTPUT_ADDON_ROOT = BASE_PATH
 else:
     # Running as a script
     BASE_PATH = os.path.dirname(os.path.abspath(__file__))
@@ -30,7 +30,8 @@ try:
 except ImportError:
     print("ERROR: Pillow (PIL) is not found in the 'libs' folder or Python path.")
     print("Please ensure the 'libs' folder with Pillow is in the same directory as this script.")
-    input("\nPress Enter to exit.")
+    if sys.stdin and sys.stdin.isatty():
+        input("\nPress Enter to exit.")
     sys.exit(1)
 
 try:
@@ -39,7 +40,8 @@ try:
 except ImportError as e:
     print("ERROR: Could not import the VTFLib wrapper.")
     print("Please ensure the 'VTFLibWrapper' folder (containing VTFLib.py, etc.) is in the same directory as this script.")
-    input("\nPress Enter to exit.")
+    if sys.stdin and sys.stdin.isatty():
+        input("\nPress Enter to exit.")
     sys.exit(1)
 
 # --- Main Application Logic ---
