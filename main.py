@@ -67,7 +67,7 @@ _EMOJI_PATTERN = re.compile(
     "\u3030"
     "]+", flags=re.UNICODE)
 
-_FILENAME_SANITIZE_PATTERN = re.compile(r'[^a-zA-Z0-9]')
+_FILENAME_SANITIZE_PATTERN = re.compile(r'[^a-zA-Z0-9_]')
 
 def remove_emojis(text):
     """Removes a wide range of emojis and symbols from a string."""
@@ -77,7 +77,9 @@ def remove_emojis(text):
 def sanitize_for_filename(name):
     """Removes emojis, spaces, special characters, and converts to lowercase for filenames."""
     name_no_emoji = remove_emojis(name)
-    return _FILENAME_SANITIZE_PATTERN.sub('', name_no_emoji).lower()
+    # Replace spaces with underscores before stripping other characters
+    name_clean = name_no_emoji.replace(' ', '_')
+    return _FILENAME_SANITIZE_PATTERN.sub('', name_clean).lower()
 
 def letterbox_image(img, max_size=512):
     """
@@ -240,7 +242,7 @@ def create_lua_script(output_path, pack_name, processed_images):
     # Build Lua script content in memory for better performance
     lua_content_parts = []
     for i, info in enumerate(processed_images):
-        print_name = remove_emojis(info["print_name"]).replace('"', '\\"')
+        print_name = info["print_name"].replace('"', '\\"')
         description = remove_emojis(info["description"]).replace(']]>', '] ]') # Avoid breaking multiline string
         subfolder = info.get("subfolder", "")
 
@@ -295,7 +297,7 @@ def main():
 
     image_folder_name = input("Enter the name of the folder with images: ")
     pack_name_input = input("Enter the name of the pack: ")
-    pack_name = remove_emojis(pack_name_input)
+    pack_name = sanitize_for_filename(pack_name_input)
 
     # Resolve image folder path relative to current working directory if not absolute
     if os.path.isabs(image_folder_name):
@@ -344,6 +346,15 @@ def main():
             description = input("Enter description (optional): ")
         
         compact_name = sanitize_for_filename(print_name)
+        
+        # Ensure unique compact_name
+        original_compact = compact_name
+        counter = 1
+        existing_names = {p['compact_name'] for p in processed_info}
+        while compact_name in existing_names:
+            compact_name = f"{original_compact}_{counter}"
+            counter += 1
+
         item["print_name"] = print_name
         item["description"] = description
         item["compact_name"] = compact_name
