@@ -629,6 +629,19 @@ class StickerCreatorGUI(QMainWindow):
         details_layout.addLayout(name_layout)
         details_layout.addSpacing(8)
 
+        # Compact Name
+        compact_layout = QHBoxLayout()
+        compact_label = QLabel("Compact Name:")
+        compact_label.setMinimumWidth(120)
+        self.compact_name_edit = QLineEdit()
+        self.compact_name_edit.setPlaceholderText("Optional: Leave empty to auto-generate from Display Name")
+        self.compact_name_edit.setToolTip("The compact name for the sticker (Optional). If empty, it will be generated from the Display Name.")
+        self.compact_name_edit.returnPressed.connect(self.next_image)
+        compact_layout.addWidget(compact_label)
+        compact_layout.addWidget(self.compact_name_edit)
+        details_layout.addLayout(compact_layout)
+        details_layout.addSpacing(8)
+
         # Description
         desc_layout = QHBoxLayout()
         desc_label = QLabel("Description:")
@@ -834,7 +847,7 @@ class StickerCreatorGUI(QMainWindow):
             return
             
         self.processing_data = {
-            "pack_name": core.remove_emojis(pack_name),
+            "pack_name": core.sanitize_for_filename(pack_name),
             "output_dir": output_dir,
             "images": images_to_process,
             "processed_info": [],
@@ -867,6 +880,7 @@ class StickerCreatorGUI(QMainWindow):
                 self.image_preview.setPixmap(scaled_pixmap)
 
         self.print_name_edit.setText(image_info["original_name"].replace('_', ' ').title())
+        self.compact_name_edit.setText("")
         self.desc_edit.setText("")
         self.subfolder_edit.setText("")
         # Auto-focus on display name for quick editing
@@ -898,11 +912,46 @@ class StickerCreatorGUI(QMainWindow):
             self.print_name_edit.selectAll()
             return
 
+        print_name = self.print_name_edit.text().strip()
+        if not print_name:
+            QMessageBox.warning(self, "Validation Error", "Display Name cannot be empty.\n\nPlease enter a name for this sticker.")
+            self.print_name_edit.setFocus()
+            self.print_name_edit.selectAll()
+            return
+
+        user_compact_name = self.compact_name_edit.text().strip()
+        if user_compact_name:
+             compact_name = core.sanitize_for_filename(user_compact_name)
+        else:
+             compact_name = core.sanitize_for_filename(print_name)
+
+        existing_names = {item['compact_name'] for item in self.processing_data["processed_info"]}
+        if compact_name in existing_names:
+            msg_box = QMessageBox(self)
+            msg_box.setWindowTitle("Duplicate Name Found!!!")
+            msg_box.setText(f"The filename '{compact_name}' (derived from '{user_compact_name if user_compact_name else print_name}') is already in use.\n\nPlease choose a different name :3 (unless you are an idiot)")
+            
+            laugh_path = self.get_asset_path('laugh.png')
+            if os.path.exists(laugh_path):
+                pixmap = QPixmap(laugh_path).scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                msg_box.setIconPixmap(pixmap)
+            else:
+                msg_box.setIcon(QMessageBox.Warning)
+            
+            msg_box.exec()
+            if user_compact_name:
+                self.compact_name_edit.setFocus()
+                self.compact_name_edit.selectAll()
+            else:
+                self.print_name_edit.setFocus()
+                self.print_name_edit.selectAll()
+            return
+
         self.processing_data["processed_info"].append({
             **current_image_info,
             "print_name": print_name,
             "description": core.remove_emojis(self.desc_edit.text()),
-            "compact_name": core.sanitize_for_filename(print_name),
+            "compact_name": compact_name,
             "subfolder": self.subfolder_edit.text().strip(),
             "type": "animated" if current_image_info["path"].lower().endswith('.gif') else "static"
         })
