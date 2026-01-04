@@ -16,13 +16,13 @@ Thanks arctic <3<br>
 
 - No watermark:tm:
 
--  Full blown GIF Support
+- Full blown GIF Support
 
 - Automatic project merging. No more manual merging and all of the problems that come with it!
 
-- `TBA` Options for holographic and etc only in GUI
+- Subfolders.
 
-- `TBA` Subfolders.
+- `TBA` Options for holographic and etc only in GUI
 
 - `TBA` Fingerprinting
 
