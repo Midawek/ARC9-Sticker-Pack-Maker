@@ -24,8 +24,6 @@
 
 - `TBA` Options for holographic and etc only in GUI
 
-- `TBA` Fingerprinting
-
 ## Which version should you pick?
 
 - CLI version - if you need to go through hundreds of images to put in as stickers without much naming or description
