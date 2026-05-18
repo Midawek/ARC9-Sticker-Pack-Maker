@@ -2,7 +2,7 @@
 
 # [ARC9] Sticker Pack Maker++
 ### ♡ Made by Midawek ♡ with love for ARC9 Community ♡
-[ARC9] Sticker Pack Maker++ is a cli/python tool that allows you to create stickers in bulk or invidually in to a ready to use addon.
+[ARC9] Sticker Pack Maker++ is an official cli/python tool that allows you to create stickers in bulk or invidually in to a ready to use addon.
 <p align="center"><img width="701" height="537" alt="approved" src="https://github.com/user-attachments/assets/54e99ef6-f60a-4800-9b33-73093321d236" /></p>
 Thanks arctic <3<br>
 
