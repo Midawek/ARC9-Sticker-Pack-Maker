@@ -1,0 +1,3 @@
+C:\Python312\python.exe -m nuitka --onefile --windows-console-mode=disable  --windows-icon-from-ico="assets\logo.ico" --output-dir=dist --output-filename="ARC9StickerPackMaker++_Gui" --product-name="ARC9StickerPackMaker++_Gui" --file-version="1.3.0.0" --plugin-enable=pyside6 --include-data-dir=assets=assets --include-data-file=arc9_sticker_creator.py=arc9_sticker_creator.py arc9_sticker_creator_gui.py
+
+C:\Python312\python.exe -m nuitka --onefile --windows-console-mode=force --windows-icon-from-ico="assets\logo.ico" --output-dir=dist --output-filename="ARC9StickerPackMaker++_CLI" --product-name="ARC9StickerPackMaker++_CLI" --file-version="1.3.0.0" --include-data-dir=libs/VTFLibWrapper=libs/VTFLibWrapper --include-data-file=note.txt=note.txt arc9_sticker_creator.py

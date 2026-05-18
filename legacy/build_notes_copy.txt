@@ -1,0 +1,3 @@
+py -m PyInstaller --onefile --windowed -i=logo.ico --name "ARC9StickerPackMaker++_Gui"  --add-data "arc9_sticker_creator.py;.  --add-data "libs;libs" --add-data "assets;assets"     arc9_sticker_creator_gui.py
+
+py -m PyInstaller --onefile  --console -i=logo.ico --name "ARC9StickerPackMaker++_CLI" --add-data "libs;libs" arc9_sticker_creator.py

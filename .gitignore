@@ -1,0 +1,36 @@
+# Python caches
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments and local tooling
+.venv/
+venv/
+env/
+.python-version
+
+# Test and tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Build outputs
+build/
+dist/
+*.spec.bak
+
+# Project artifacts and generated output
+artifacts/
+generated_packs/
+
+# Local vendored dependency snapshots
+vendor/libs/
+vendor/libs_without_pyside6/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

@@ -1,0 +1,39 @@
+# -*- mode: python ; coding: utf-8 -*-
+
+
+a = Analysis(
+    ['arc9_sticker_creator_gui.py'],
+    pathex=[],
+    binaries=[],
+    datas=[('arc9_sticker_creator.py', '.'), ('libs', 'libs'), ('VTFLibWrapper', 'VTFLibWrapper'), ('logo.png', '.'), ('banner.png', '.'), ('Caution.png', '.'), ('venryn-sans.regular.otf', '.')],
+    hiddenimports=[],
+    hookspath=[],
+    hooksconfig={},
+    runtime_hooks=[],
+    excludes=[],
+    noarchive=False,
+    optimize=0,
+)
+pyz = PYZ(a.pure)
+
+exe = EXE(
+    pyz,
+    a.scripts,
+    a.binaries,
+    a.datas,
+    [],
+    name='ARC9StickerPackMaker++',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    runtime_tmpdir=None,
+    console=False,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+    icon=['logo.ico'],
+)

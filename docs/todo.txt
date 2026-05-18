@@ -1,0 +1,6 @@
+add option for custom compact name
+add checkboxes for carrying over data
+make desc larger
+add holo (:pray:)
+
+make editor or make spm++ look like tagstudio
