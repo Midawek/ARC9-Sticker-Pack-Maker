@@ -4,6 +4,9 @@ import ctypes
 import threading
 import queue
 import json
+import re
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 # --- Determine the base path for bundled assets and modules ---
@@ -29,7 +32,8 @@ try:
         QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
         QPushButton, QLabel, QLineEdit, QFileDialog, QMessageBox,
         QStackedWidget, QFrame, QCheckBox, QProgressBar, QGraphicsOpacityEffect,
-        QListWidget, QListWidgetItem, QSplitter, QComboBox)
+        QListWidget, QListWidgetItem, QSplitter, QComboBox, QScrollArea,
+        QTreeWidget, QTreeWidgetItem)
     from PySide6.QtGui import QPixmap, QFontDatabase, QFont, QMovie, QIcon, QColor, QPainter, QDesktopServices, QPainterPath
     from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
     from PySide6.QtCore import Qt, QThread, Signal, QObject, QPropertyAnimation, QEasingCurve, Property, QSequentialAnimationGroup, QPoint, QSettings, QUrl, QSize, QParallelAnimationGroup
@@ -39,6 +43,7 @@ except ImportError:
 
 
 try:
+    from arc9_sticker_pack_maker import __version__ as APP_VERSION
     from arc9_sticker_pack_maker import core
 except ImportError as e:
     # Use QMessageBox if QApplication has been successfully imported and initialized
@@ -50,6 +55,57 @@ except ImportError as e:
     else:
         print(f"ERROR: Could not import application core module.\nError: {e}")
     sys.exit(1)
+
+GITHUB_REPOSITORY_URL = "https://github.com/Midawek/ARC9-Sticker-Pack-Maker"
+GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/Midawek/ARC9-Sticker-Pack-Maker/releases/latest"
+
+def release_version_numbers(value):
+    return tuple(int(part) for part in re.findall(r"\d+", value or ""))
+
+def is_newer_release(latest_tag, current_version):
+    latest_numbers = release_version_numbers(latest_tag)
+    current_numbers = release_version_numbers(current_version)
+    if latest_numbers and current_numbers:
+        return latest_numbers > current_numbers
+    return (latest_tag or "").strip().lower() != (current_version or "").strip().lower()
+
+class UpdateCheckWorker(QObject):
+    update_available = Signal(str, str, str)
+    up_to_date = Signal(str)
+    error = Signal(str)
+    close = Signal()
+
+    def __init__(self, current_version):
+        super().__init__()
+        self.current_version = current_version
+
+    def run(self):
+        try:
+            request = urllib.request.Request(
+                GITHUB_LATEST_RELEASE_API,
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "User-Agent": "ARC9-Sticker-Pack-Maker-Plus-Plus",
+                },
+            )
+            with urllib.request.urlopen(request, timeout=10) as response:
+                release_data = json.loads(response.read().decode("utf-8"))
+
+            latest_tag = release_data.get("tag_name") or release_data.get("name") or ""
+            latest_name = release_data.get("name") or latest_tag
+            release_url = release_data.get("html_url") or f"{GITHUB_REPOSITORY_URL}/releases"
+
+            if not latest_tag:
+                raise ValueError("Latest release did not include a tag name.")
+
+            if is_newer_release(latest_tag, self.current_version):
+                self.update_available.emit(latest_name, latest_tag, release_url)
+            else:
+                self.up_to_date.emit(latest_tag)
+        except (urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError) as e:
+            self.error.emit(str(e))
+        finally:
+            self.close.emit()
 
 # --- Worker for background processing ---
 class Worker(QObject):
@@ -86,7 +142,8 @@ class Worker(QObject):
             if self.is_running:
                 if successful_images:
                     self.progress.emit(total, "Generating Lua script...", "")
-                    core.create_lua_script(self.output_dir, self.pack_name, successful_images)
+                    packaged_images = core.package_sticker_sounds(self.output_dir, self.pack_name, successful_images)
+                    core.create_lua_script(self.output_dir, self.pack_name, packaged_images)
                     self.finished.emit(self.pack_name)
                 else:
                     self.warning.emit("No images were successfully converted.")
@@ -164,6 +221,47 @@ class DropLineEdit(QLineEdit):
     def dropEvent(self, event):
         path = event.mimeData().urls()[0].toLocalFile()
         self.setText(path)
+
+class SoundDropLineEdit(QLineEdit):
+    SUPPORTED_EXTENSIONS = {".mp3", ".wav", ".ogg"}
+
+    def __init__(self, multiple=False, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.multiple = multiple
+        self.setAcceptDrops(True)
+
+    def dragEnterEvent(self, event):
+        if self.sound_paths_from_event(event):
+            event.acceptProposedAction()
+
+    def dragMoveEvent(self, event):
+        if self.sound_paths_from_event(event):
+            event.acceptProposedAction()
+
+    def dropEvent(self, event):
+        paths = self.sound_paths_from_event(event)
+        if not paths:
+            return
+        if self.multiple:
+            existing_paths = [path.strip() for path in self.text().split(",") if path.strip()]
+            self.setText(", ".join(existing_paths + paths))
+        else:
+            self.setText(paths[0])
+        event.acceptProposedAction()
+
+    def sound_paths_from_event(self, event):
+        if not event.mimeData().hasUrls():
+            return []
+        paths = []
+        for url in event.mimeData().urls():
+            if not url.isLocalFile():
+                continue
+            path = url.toLocalFile()
+            if os.path.isfile(path) and os.path.splitext(path)[1].lower() in self.SUPPORTED_EXTENSIONS:
+                paths.append(path)
+        if not self.multiple and len(paths) != 1:
+            return []
+        return paths
 
 class ThumbnailCell(QWidget):
     def __init__(self, image_info, parent=None):
@@ -279,6 +377,11 @@ class StickerCreatorGUI(QMainWindow):
         self.autoplay_gifs_enabled = True
         self.thumbnail_size_name = "Medium"
         self.reduced_animations_enabled = False
+        self.output_tree_enabled = True
+        self.check_updates_on_startup_enabled = True
+        self.update_check_thread = None
+        self.update_check_worker = None
+        self._startup_update_check_started = False
         self._startup_animation_played = False
 
         self.gif_movie = QMovie(self)
@@ -353,6 +456,7 @@ class StickerCreatorGUI(QMainWindow):
 
 
     def load_settings(self):
+        self.seed_default_enabled_settings()
         background_enabled = self.settings.value("background_enabled", True, type=bool)
 
         self.bg_checkbox.setChecked(background_enabled)
@@ -374,13 +478,27 @@ class StickerCreatorGUI(QMainWindow):
         self.autoplay_gifs_enabled = self.settings.value("autoplay_gifs_enabled", True, type=bool)
         self.thumbnail_size_name = self.settings.value("thumbnail_size_name", "Medium", type=str)
         self.reduced_animations_enabled = self.settings.value("reduced_animations_enabled", False, type=bool)
+        self.output_tree_enabled = self.settings.value("output_tree_enabled", True, type=bool)
+        self.check_updates_on_startup_enabled = self.settings.value("check_updates_on_startup_enabled", True, type=bool)
 
         self.remember_paths_checkbox.setChecked(self.remember_paths_enabled)
         self.carry_subfolder_checkbox.setChecked(self.carry_subfolder_enabled)
         self.autoplay_gifs_checkbox.setChecked(self.autoplay_gifs_enabled)
+        self.output_tree_checkbox.setChecked(self.output_tree_enabled)
+        self.check_updates_checkbox.setChecked(self.check_updates_on_startup_enabled)
         self.thumbnail_size_combo.setCurrentText(self.thumbnail_size_name)
         self.reduced_animations_checkbox.setChecked(self.reduced_animations_enabled)
         self.apply_thumbnail_size(self.thumbnail_size_name)
+        self.apply_output_tree_visibility()
+
+    def seed_default_enabled_settings(self):
+        defaults_key = "defaults_seeded_2026_05_31"
+        if self.settings.value(defaults_key, False, type=bool):
+            return
+        self.settings.setValue("autoplay_gifs_enabled", True)
+        self.settings.setValue("output_tree_enabled", True)
+        self.settings.setValue("check_updates_on_startup_enabled", True)
+        self.settings.setValue(defaults_key, True)
 
     def save_settings(self):
         self.settings.setValue("background_enabled", self.bg_checkbox.isChecked())
@@ -397,6 +515,8 @@ class StickerCreatorGUI(QMainWindow):
         self.settings.setValue("autoplay_gifs_enabled", self.autoplay_gifs_checkbox.isChecked())
         self.settings.setValue("thumbnail_size_name", self.thumbnail_size_combo.currentText())
         self.settings.setValue("reduced_animations_enabled", self.reduced_animations_checkbox.isChecked())
+        self.settings.setValue("output_tree_enabled", self.output_tree_checkbox.isChecked())
+        self.settings.setValue("check_updates_on_startup_enabled", self.check_updates_checkbox.isChecked())
 
     def toggle_background(self, state):
         if hasattr(self, 'scroll_anim') and self.scroll_anim:
@@ -688,6 +808,37 @@ class StickerCreatorGUI(QMainWindow):
             "Animate GIFs in the editor preview instead of showing a still frame.",
             self.on_autoplay_gifs_changed,
         )
+        self.output_tree_checkbox = self.create_settings_toggle_row(
+            workflow_layout,
+            "Show output tree",
+            "Preview the generated addon folders below the sticker library.",
+            self.on_output_tree_changed,
+        )
+        self.check_updates_checkbox = self.create_settings_toggle_row(
+            workflow_layout,
+            "Check for updates",
+            f"Look for new GitHub releases on startup. Current version: {APP_VERSION}.",
+            self.on_check_updates_changed,
+        )
+
+        update_row = QFrame()
+        update_row.setObjectName("settingsRow")
+        update_layout = QHBoxLayout(update_row)
+        update_layout.setContentsMargins(0, 0, 0, 0)
+        update_text_layout = QVBoxLayout()
+        update_text_layout.setSpacing(2)
+        update_title = QLabel("GitHub releases")
+        update_title.setObjectName("settingsLabel")
+        self.update_status_label = QLabel("Ready to check for updates.")
+        self.update_status_label.setObjectName("settingsCaption")
+        update_text_layout.addWidget(update_title)
+        update_text_layout.addWidget(self.update_status_label)
+        update_layout.addLayout(update_text_layout)
+        update_layout.addStretch()
+        self.check_now_button = QPushButton("Check Now")
+        self.check_now_button.clicked.connect(lambda: self.check_for_updates(manual=True))
+        update_layout.addWidget(self.check_now_button)
+        workflow_layout.addWidget(update_row)
 
         thumbnail_row = QFrame()
         thumbnail_row.setObjectName("settingsRow")
@@ -752,6 +903,15 @@ class StickerCreatorGUI(QMainWindow):
             self.show_current_image()
         self.save_settings()
 
+    def on_output_tree_changed(self, state):
+        self.output_tree_enabled = bool(state)
+        self.apply_output_tree_visibility()
+        self.save_settings()
+
+    def on_check_updates_changed(self, state):
+        self.check_updates_on_startup_enabled = bool(state)
+        self.save_settings()
+
     def on_thumbnail_size_changed(self, size_name):
         self.thumbnail_size_name = size_name
         self.apply_thumbnail_size(size_name)
@@ -779,6 +939,15 @@ class StickerCreatorGUI(QMainWindow):
         preview_w, preview_h, grid_w, grid_h = presets.get(size_name, presets["Medium"])
         self.sticker_gallery.setIconSize(QSize(preview_w, preview_h))
         self.sticker_gallery.setGridSize(QSize(grid_w, grid_h))
+
+    def apply_output_tree_visibility(self):
+        if not hasattr(self, "output_tree_frame"):
+            return
+        processing_active = (
+            hasattr(self, "progress_frame")
+            and self.progress_frame.isVisible()
+        )
+        self.output_tree_frame.setVisible(self.output_tree_enabled and not processing_active)
 
     def switch_view(self, new_widget):
         """ Animates the transition between stacked widget pages. """
@@ -847,9 +1016,70 @@ class StickerCreatorGUI(QMainWindow):
         if not self._startup_animation_played:
             self._startup_animation_played = True
             self.animate_startup()
+        if self.check_updates_on_startup_enabled and not self._startup_update_check_started:
+            self._startup_update_check_started = True
+            self.check_for_updates(manual=False)
 
     def open_github(self, event):
-        QDesktopServices.openUrl(QUrl("https://github.com/Midawek/ARC9-Sticker-Pack-Maker"))
+        QDesktopServices.openUrl(QUrl(GITHUB_REPOSITORY_URL))
+
+    def check_for_updates(self, manual=False):
+        if self.update_check_thread is not None:
+            if manual:
+                self.update_status_label.setText("Update check already running...")
+            return
+
+        self.update_check_manual = manual
+        if hasattr(self, "update_status_label"):
+            self.update_status_label.setText("Checking GitHub releases...")
+        if hasattr(self, "check_now_button"):
+            self.check_now_button.setEnabled(False)
+
+        self.update_check_worker = UpdateCheckWorker(APP_VERSION)
+        self.update_check_thread = QThread()
+        self.update_check_worker.moveToThread(self.update_check_thread)
+        self.update_check_thread.started.connect(self.update_check_worker.run)
+        self.update_check_worker.update_available.connect(self.on_update_available)
+        self.update_check_worker.up_to_date.connect(self.on_update_up_to_date)
+        self.update_check_worker.error.connect(self.on_update_check_error)
+        self.update_check_worker.close.connect(self.on_update_check_finished)
+        self.update_check_thread.start()
+
+    def on_update_available(self, latest_name, latest_tag, release_url):
+        if hasattr(self, "update_status_label"):
+            self.update_status_label.setText(f"New release available: {latest_tag}")
+
+        msg_box = QMessageBox(self)
+        msg_box.setIcon(QMessageBox.Information)
+        msg_box.setWindowTitle("Update Available")
+        msg_box.setText(f"A new version is available: {latest_name}")
+        msg_box.setInformativeText(f"Current version: {APP_VERSION}")
+        open_button = msg_box.addButton("Open Release", QMessageBox.ActionRole)
+        msg_box.addButton("Later", QMessageBox.RejectRole)
+        msg_box.exec()
+        if msg_box.clickedButton() == open_button:
+            QDesktopServices.openUrl(QUrl(release_url))
+
+    def on_update_up_to_date(self, latest_tag):
+        if hasattr(self, "update_status_label"):
+            self.update_status_label.setText(f"Up to date: {latest_tag}")
+        if getattr(self, "update_check_manual", False):
+            QMessageBox.information(self, "No Update Found", f"You are on the latest release ({latest_tag}).")
+
+    def on_update_check_error(self, message):
+        if hasattr(self, "update_status_label"):
+            self.update_status_label.setText("Could not check GitHub releases.")
+        if getattr(self, "update_check_manual", False):
+            QMessageBox.warning(self, "Update Check Failed", f"Could not check for updates:\n\n{message}")
+
+    def on_update_check_finished(self):
+        if self.update_check_thread:
+            self.update_check_thread.quit()
+            self.update_check_thread.wait()
+        self.update_check_thread = None
+        self.update_check_worker = None
+        if hasattr(self, "check_now_button"):
+            self.check_now_button.setEnabled(True)
 
     def create_processing_widget(self):
         widget = QWidget()
@@ -893,14 +1123,34 @@ class StickerCreatorGUI(QMainWindow):
         self.sticker_gallery.setSelectionMode(QListWidget.SingleSelection)
         self.sticker_gallery.setFocusPolicy(Qt.NoFocus)
         self.sticker_gallery.currentRowChanged.connect(self.on_gallery_row_changed)
-        gallery_layout.addWidget(self.sticker_gallery)
+
+        self.output_tree_frame = QFrame()
+        self.output_tree_frame.setObjectName("outputTreeFrame")
+        output_tree_layout = QVBoxLayout(self.output_tree_frame)
+        output_tree_layout.setContentsMargins(10, 10, 10, 10)
+        output_tree_header = QLabel("Output Tree")
+        output_tree_header.setObjectName("galleryHeader")
+        output_tree_layout.addWidget(output_tree_header)
+        self.output_tree = QTreeWidget()
+        self.output_tree.setObjectName("outputTree")
+        self.output_tree.setHeaderHidden(True)
+        self.output_tree.setAnimated(True)
+        self.output_tree.setMinimumHeight(120)
+        output_tree_layout.addWidget(self.output_tree)
+
+        self.gallery_content_splitter = QSplitter(Qt.Vertical)
+        self.gallery_content_splitter.setChildrenCollapsible(False)
+        self.gallery_content_splitter.addWidget(self.sticker_gallery)
+        self.gallery_content_splitter.addWidget(self.output_tree_frame)
+        self.gallery_content_splitter.setSizes([520, 190])
+        gallery_layout.addWidget(self.gallery_content_splitter)
         content_splitter.addWidget(self.gallery_frame)
 
         editor_panel = QWidget()
         editor_layout = QVBoxLayout(editor_panel)
         editor_layout.setContentsMargins(12, 0, 0, 0)
         content_splitter.addWidget(editor_panel)
-        content_splitter.setSizes([690, 450])
+        content_splitter.setSizes([620, 520])
 
         self.header_label = QLabel("Editing Sticker 1 of N")
         self.header_label.setObjectName("header")
@@ -923,52 +1173,105 @@ class StickerCreatorGUI(QMainWindow):
         # Display Name
         name_layout = QHBoxLayout()
         name_label = QLabel("In-game Name:")
-        name_label.setMinimumWidth(120)
+        name_label.setFixedWidth(105)
         self.print_name_edit = QLineEdit()
         self.print_name_edit.setToolTip("The name players will see in-game.")
         self.print_name_edit.returnPressed.connect(self.next_image)  # Enter key support
         name_layout.addWidget(name_label)
-        name_layout.addWidget(self.print_name_edit)
+        name_layout.addWidget(self.print_name_edit, 1)
         details_layout.addLayout(name_layout)
         details_layout.addSpacing(8)
 
         # Compact Name
         compact_layout = QHBoxLayout()
         compact_label = QLabel("Material Name:")
-        compact_label.setMinimumWidth(120)
+        compact_label.setFixedWidth(105)
         self.compact_name_edit = QLineEdit()
         self.compact_name_edit.setPlaceholderText("Optional; generated from the in-game name when left blank")
         self.compact_name_edit.setToolTip("Optional filename-friendly material name. Leave blank to generate it automatically.")
         self.compact_name_edit.returnPressed.connect(self.next_image)
         compact_layout.addWidget(compact_label)
-        compact_layout.addWidget(self.compact_name_edit)
+        compact_layout.addWidget(self.compact_name_edit, 1)
         details_layout.addLayout(compact_layout)
         details_layout.addSpacing(8)
 
         # Description
         desc_layout = QHBoxLayout()
         desc_label = QLabel("Description:")
-        desc_label.setMinimumWidth(120)
+        desc_label.setFixedWidth(105)
         self.desc_edit = QLineEdit()
         self.desc_edit.setPlaceholderText("Optional sticker description...")
         self.desc_edit.setToolTip("Optional description shown with the sticker attachment.")
         desc_layout.addWidget(desc_label)
-        desc_layout.addWidget(self.desc_edit)
+        desc_layout.addWidget(self.desc_edit, 1)
         details_layout.addLayout(desc_layout)
         details_layout.addSpacing(8)
 
         # Subfolder
         subfolder_layout = QHBoxLayout()
         subfolder_label = QLabel("Subfolder:")
-        subfolder_label.setMinimumWidth(120)
+        subfolder_label.setFixedWidth(105)
         self.subfolder_edit = QLineEdit()
         self.subfolder_edit.setPlaceholderText("Optional, e.g. Characters/Cute")
         self.subfolder_edit.setToolTip("Optional folder path for organizing stickers in-game.")
         self.subfolder_edit.setText(self._subfolder_default_text) # Set initial text here
         subfolder_layout.addWidget(subfolder_label)
-        subfolder_layout.addWidget(self.subfolder_edit)
+        subfolder_layout.addWidget(self.subfolder_edit, 1)
         details_layout.addLayout(subfolder_layout)
-        editor_layout.addWidget(self.details_frame)
+        details_layout.addSpacing(10)
+
+        effects_title = QLabel("Sticker FX")
+        effects_title.setObjectName("sectionTitle")
+        effects_title.setToolTip("Optional ARC9 sound effects generated into the attachment Lua.")
+        details_layout.addWidget(effects_title)
+
+        self.install_sound_edit = self.create_sound_input_row(
+            details_layout,
+            "Install Sound:",
+            "Optional sound file or ARC9 path",
+            "Sound played when the sticker is equipped.",
+        )
+        self.uninstall_sound_edit = self.create_sound_input_row(
+            details_layout,
+            "Uninstall Sound:",
+            "Optional sound file or ARC9 path",
+            "Sound played when the sticker is removed.",
+        )
+        self.impact_sound_edit = self.create_sound_input_row(
+            details_layout,
+            "Impact Sound:",
+            "Optional sound file or ARC9 path",
+            "Impact sound included in the generated FX Enabled toggle.",
+        )
+        self.shoot_sounds_edit = self.create_sound_input_row(
+            details_layout,
+            "Shoot Sounds:",
+            "Optional sound files or comma-separated ARC9 paths",
+            "Shoot sounds for both outdoor and indoor fire.",
+            multiple=True,
+        )
+        self.shoot_silenced_sounds_edit = self.create_sound_input_row(
+            details_layout,
+            "Silenced Sounds:",
+            "Optional sound files or comma-separated ARC9 paths",
+            "Silenced shoot sounds for both outdoor and indoor fire.",
+            multiple=True,
+        )
+        self.dryfire_sounds_edit = self.create_sound_input_row(
+            details_layout,
+            "Dry Fire Sounds:",
+            "Optional sound files or comma-separated ARC9 paths",
+            "Dry-fire sounds for the FX Enabled toggle.",
+            multiple=True,
+        )
+        self.details_scroll = QScrollArea()
+        self.details_scroll.setObjectName("detailsScroll")
+        self.details_scroll.setWidgetResizable(True)
+        self.details_scroll.setFrameShape(QFrame.NoFrame)
+        self.details_scroll.setMaximumHeight(315)
+        self.details_scroll.setWidget(self.details_frame)
+        editor_layout.addWidget(self.details_scroll)
+        self.connect_output_tree_updates()
 
         # Progress Frame (initially hidden)
         self.progress_frame = QFrame()
@@ -1000,6 +1303,43 @@ class StickerCreatorGUI(QMainWindow):
 
         return widget
 
+    def connect_output_tree_updates(self):
+        for line_edit in (
+            self.print_name_edit,
+            self.compact_name_edit,
+            self.subfolder_edit,
+            self.install_sound_edit,
+            self.uninstall_sound_edit,
+            self.impact_sound_edit,
+            self.shoot_sounds_edit,
+            self.shoot_silenced_sounds_edit,
+            self.dryfire_sounds_edit,
+        ):
+            line_edit.textChanged.connect(self.update_output_tree)
+
+    def create_sound_input_row(self, parent_layout, label_text, placeholder, tooltip, multiple=False):
+        row_layout = QHBoxLayout()
+        row_layout.setSpacing(6)
+        label = QLabel(label_text)
+        label.setFixedWidth(105)
+        sound_edit = SoundDropLineEdit(multiple=multiple)
+        sound_edit.setPlaceholderText(placeholder)
+        sound_edit.setToolTip(tooltip)
+        sound_edit.setMinimumWidth(120)
+        browse_button = QPushButton("Add..." if multiple else "Browse...")
+        browse_button.setFixedWidth(84)
+        browse_button.setToolTip("Select one or more sound files" if multiple else "Select a sound file")
+        if multiple:
+            browse_button.clicked.connect(lambda: self.browse_multiple_sounds(sound_edit))
+        else:
+            browse_button.clicked.connect(lambda: self.browse_single_sound(sound_edit))
+        row_layout.addWidget(label)
+        row_layout.addWidget(sound_edit, 1)
+        row_layout.addWidget(browse_button)
+        parent_layout.addLayout(row_layout)
+        parent_layout.addSpacing(6)
+        return sound_edit
+
     def apply_stylesheet(self):
         stylesheet_content = f"""
             QMainWindow {{
@@ -1015,6 +1355,29 @@ class StickerCreatorGUI(QMainWindow):
                 background-color: #3c3c3c;
                 border-radius: 8px;
                 padding: 15px;
+            }}
+            QScrollArea#detailsScroll {{
+                background-color: transparent;
+                border: none;
+            }}
+            #outputTreeFrame {{
+                background-color: rgba(25, 25, 25, 0.96);
+                border: 1px solid #323232;
+                border-radius: 8px;
+            }}
+            QTreeWidget#outputTree {{
+                background-color: rgba(22, 22, 22, 0.98);
+                border: 1px solid #323232;
+                border-radius: 6px;
+                padding: 4px;
+                color: #d8d8d8;
+            }}
+            QTreeWidget#outputTree::item {{
+                padding: 2px;
+            }}
+            QTreeWidget#outputTree::item:selected {{
+                background-color: #33223a;
+                color: #ffffff;
             }}
             #settingsSection {{
                 background-color: rgba(37, 37, 37, 0.96);
@@ -1087,6 +1450,10 @@ class StickerCreatorGUI(QMainWindow):
             }}
             QLabel {{
                 padding: 5px;
+            }}
+            #formFrame QLabel {{
+                padding-left: 0;
+                padding-right: 4px;
             }}
             QLabel#header {{
                 font-size: 14pt;
@@ -1197,6 +1564,129 @@ class StickerCreatorGUI(QMainWindow):
         if folder:
             self.out_folder_path.setText(folder)
 
+    def sound_file_filter(self):
+        return "Sound Files (*.mp3 *.wav *.ogg);;All Files (*)"
+
+    def browse_single_sound(self, target_edit):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select Sound File",
+            "",
+            self.sound_file_filter(),
+        )
+        if file_path:
+            target_edit.setText(file_path)
+
+    def browse_multiple_sounds(self, target_edit):
+        file_paths, _ = QFileDialog.getOpenFileNames(
+            self,
+            "Select Sound Files",
+            "",
+            self.sound_file_filter(),
+        )
+        if not file_paths:
+            return
+        existing_paths = [path.strip() for path in target_edit.text().split(",") if path.strip()]
+        target_edit.setText(", ".join(existing_paths + file_paths))
+
+    def add_output_tree_path(self, root_item, path_parts):
+        parent = root_item
+        for part in path_parts:
+            existing = None
+            for index in range(parent.childCount()):
+                child = parent.child(index)
+                if child.text(0) == part:
+                    existing = child
+                    break
+            if existing is None:
+                existing = QTreeWidgetItem([part])
+                parent.addChild(existing)
+            parent = existing
+        return parent
+
+    def output_tree_states(self):
+        states = []
+        current_index = self.processing_data.get("current_index", -1)
+        for index, image_info in enumerate(self.processing_data.get("images", [])):
+            state = self.processing_data["sticker_states"][index] or self.default_state_for_image(image_info)
+            if index == current_index and hasattr(self, "print_name_edit"):
+                state = self.current_form_state()
+            states.append(state)
+        return states
+
+    def preview_sound_filenames(self, state):
+        fields = (
+            "install_sound",
+            "uninstall_sound",
+            "impact_sound",
+            "shoot_sounds",
+            "shoot_silenced_sounds",
+            "dryfire_sounds",
+        )
+        filenames = []
+        used_filenames = set()
+        for field in fields:
+            raw_paths = (
+                core.split_sound_paths(state.get(field, ""))
+                if field in {"shoot_sounds", "shoot_silenced_sounds", "dryfire_sounds"}
+                else [state.get(field, "").strip()]
+            )
+            for raw_path in raw_paths:
+                if not raw_path:
+                    continue
+                normalized_path = os.path.normpath(raw_path.strip('"'))
+                if not os.path.isfile(normalized_path):
+                    continue
+                filename = core.sanitize_sound_filename(normalized_path)
+                stem, extension = os.path.splitext(filename)
+                counter = 2
+                while filename.lower() in used_filenames:
+                    filename = f"{stem}_{counter}{extension}"
+                    counter += 1
+                used_filenames.add(filename.lower())
+                filenames.append(filename)
+        return filenames
+
+    def preview_compact_names_by_index(self, states):
+        compact_names = {}
+        for index, state in enumerate(states):
+            print_name = state.get("print_name", "")
+            compact_input = state.get("compact_name_input", "")
+            compact_name = (
+                core.sanitize_for_filename(compact_input, strict=False)
+                if compact_input
+                else core.sanitize_for_filename(print_name, strict=True)
+            )
+            compact_names[index] = compact_name or f"sticker_{index + 1}"
+        return compact_names
+
+    def update_output_tree(self):
+        if not hasattr(self, "output_tree") or not self.processing_data:
+            return
+        self.output_tree.clear()
+
+        pack_name = self.processing_data.get("pack_name", "stickerpack")
+        root = QTreeWidgetItem([f"arc9_{pack_name}_stickers"])
+        self.output_tree.addTopLevelItem(root)
+
+        self.add_output_tree_path(root, ["lua", "arc9", "common", "attachments_bulk", f"a9sm_{pack_name}.lua"])
+
+        states = self.output_tree_states()
+        compact_names = self.preview_compact_names_by_index(states)
+        for index, state in enumerate(states):
+            compact_name = compact_names.get(index, f"sticker_{index + 1}")
+            self.add_output_tree_path(root, ["materials", "stickers", pack_name, f"{compact_name}.vtf"])
+            self.add_output_tree_path(root, ["materials", "stickers", pack_name, f"{compact_name}.vmt"])
+
+            sound_filenames = self.preview_sound_filenames(state)
+            for filename in sound_filenames:
+                self.add_output_tree_path(
+                    root,
+                    ["sound", "arc9", pack_name, "soundmods", compact_name, filename],
+                )
+
+        self.output_tree.expandToDepth(3)
+
     def start_processing(self):
         image_folder = self.img_folder_path.text()
         pack_name = self.pack_name.text().strip()
@@ -1258,6 +1748,7 @@ class StickerCreatorGUI(QMainWindow):
         self.populate_sticker_gallery(images_to_process)
         self.switch_view(self.processing_widget)
         self.show_current_image()
+        self.update_output_tree()
 
     def populate_sticker_gallery(self, images):
         self.sticker_gallery.clear()
@@ -1285,6 +1776,8 @@ class StickerCreatorGUI(QMainWindow):
             cell.set_selected(index == row, animated=not self.reduced_animations_enabled)
         if not self.processing_data or row < 0:
             return
+        if row >= len(self.processing_data.get("images", [])):
+            return
         current_index = self.processing_data.get("current_index", 0)
         if row == current_index:
             return
@@ -1298,6 +1791,12 @@ class StickerCreatorGUI(QMainWindow):
             "compact_name_input": "",
             "description": "",
             "subfolder": self._subfolder_default_text if self.carry_subfolder_enabled else "",
+            "install_sound": "",
+            "uninstall_sound": "",
+            "impact_sound": "",
+            "shoot_sounds": "",
+            "shoot_silenced_sounds": "",
+            "dryfire_sounds": "",
         }
 
     def current_form_state(self):
@@ -1306,12 +1805,20 @@ class StickerCreatorGUI(QMainWindow):
             "compact_name_input": self.compact_name_edit.text().strip(),
             "description": self.desc_edit.text(),
             "subfolder": self.subfolder_edit.text().strip(),
+            "install_sound": self.install_sound_edit.text().strip(),
+            "uninstall_sound": self.uninstall_sound_edit.text().strip(),
+            "impact_sound": self.impact_sound_edit.text().strip(),
+            "shoot_sounds": self.shoot_sounds_edit.text().strip(),
+            "shoot_silenced_sounds": self.shoot_silenced_sounds_edit.text().strip(),
+            "dryfire_sounds": self.dryfire_sounds_edit.text().strip(),
         }
 
     def save_current_form(self):
         if not self.processing_data:
             return
         idx = self.processing_data["current_index"]
+        if idx < 0 or idx >= len(self.processing_data.get("sticker_states", [])):
+            return
         self.processing_data["sticker_states"][idx] = self.current_form_state()
 
     def load_form_state(self, idx):
@@ -1321,6 +1828,8 @@ class StickerCreatorGUI(QMainWindow):
     def show_current_image(self):
         idx = self.processing_data["current_index"]
         total = len(self.processing_data["images"])
+        if idx < 0 or idx >= total:
+            return
         image_info = self.processing_data["images"][idx]
 
         self.header_label.setText(f"Editing Sticker {idx + 1} of {total}")
@@ -1357,6 +1866,15 @@ class StickerCreatorGUI(QMainWindow):
         self.compact_name_edit.setText(state["compact_name_input"])
         self.desc_edit.setText(state["description"])
         self.subfolder_edit.setText(state["subfolder"])
+        self.install_sound_edit.setText(state.get("install_sound", ""))
+        self.uninstall_sound_edit.setText(state.get("uninstall_sound", ""))
+        self.impact_sound_edit.setText(state.get("impact_sound", ""))
+        self.shoot_sounds_edit.setText(state.get("shoot_sounds", state.get("shoot_outdoor_sounds", "")))
+        self.shoot_silenced_sounds_edit.setText(
+            state.get("shoot_silenced_sounds", state.get("shoot_silenced_outdoor_sounds", ""))
+        )
+        self.dryfire_sounds_edit.setText(state.get("dryfire_sounds", ""))
+        self.update_output_tree()
         # Auto-focus on display name for quick editing
         self.print_name_edit.setFocus()
         self.print_name_edit.selectAll()
@@ -1377,7 +1895,8 @@ class StickerCreatorGUI(QMainWindow):
     def next_image(self):
         idx = self.processing_data["current_index"]
         total = len(self.processing_data["images"])
-        current_image_info = self.processing_data["images"][idx]
+        if idx < 0 or idx >= total:
+            return
 
         print_name = self.print_name_edit.text().strip()
         if not print_name:
@@ -1422,11 +1941,12 @@ class StickerCreatorGUI(QMainWindow):
         self.processing_data["sticker_states"][idx] = self.current_form_state()
         self._subfolder_default_text = self.subfolder_edit.text().strip()
 
-        self.processing_data["current_index"] += 1
-        if self.processing_data["current_index"] < total:
-            self.show_current_image()
-        else:
+        if idx >= total - 1:
             self.finish_creation()
+            return
+
+        self.processing_data["current_index"] = idx + 1
+        self.show_current_image()
 
     def compact_names_by_index(self):
         compact_names = {}
@@ -1452,14 +1972,23 @@ class StickerCreatorGUI(QMainWindow):
                 "description": core.remove_emojis(state["description"]),
                 "compact_name": compact_names[index],
                 "subfolder": state["subfolder"],
+                "install_sound": state.get("install_sound", ""),
+                "uninstall_sound": state.get("uninstall_sound", ""),
+                "impact_sound": state.get("impact_sound", ""),
+                "shoot_sounds": state.get("shoot_sounds", state.get("shoot_outdoor_sounds", "")),
+                "shoot_silenced_sounds": state.get(
+                    "shoot_silenced_sounds",
+                    state.get("shoot_silenced_outdoor_sounds", ""),
+                ),
+                "dryfire_sounds": state.get("dryfire_sounds", ""),
                 "type": "animated" if image_info["path"].lower().endswith('.gif') else "static",
             })
         return processed_info
 
     def finish_creation(self):
-        self.save_current_form()
         self.processing_data["processed_info"] = self.build_processed_info()
-        self.details_frame.setVisible(False)
+        self.details_scroll.setVisible(False)
+        self.output_tree_frame.setVisible(False)
         self.button_frame.setVisible(False)
         self.progress_frame.setVisible(True)
         self.progress_bar.setMaximum(len(self.processing_data["images"]))
@@ -1551,7 +2080,8 @@ class StickerCreatorGUI(QMainWindow):
             self.worker.is_running = False # Signal worker to stop
         self.switch_view(self.setup_widget)
         # Reset processing widget state
-        self.details_frame.setVisible(True)
+        self.details_scroll.setVisible(True)
+        self.apply_output_tree_visibility()
         self.button_frame.setVisible(True)
         self.progress_frame.setVisible(False)
         self.progress_bar.setValue(0)
@@ -1567,6 +2097,9 @@ class StickerCreatorGUI(QMainWindow):
 
     def closeEvent(self, event):
         self.save_settings()
+        if self.update_check_thread:
+            self.update_check_thread.quit()
+            self.update_check_thread.wait()
         self.back_to_setup() # Stop worker thread if running
         event.accept()
 

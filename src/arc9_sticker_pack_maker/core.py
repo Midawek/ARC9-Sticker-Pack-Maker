@@ -2,6 +2,7 @@ import os
 import sys
 import re
 import subprocess
+import shutil
 from pathlib import Path
 from ctypes import cast, POINTER, c_byte
 
@@ -70,6 +71,9 @@ _EMOJI_PATTERN = re.compile(
 
 _FILENAME_SANITIZE_PATTERN = re.compile(r'[^a-zA-Z0-9_]')
 _ILLEGAL_FILENAME_CHARS_PATTERN = re.compile(r'[<>:"/\\|?*]')
+SOUND_FIELDS_SINGLE = ("install_sound", "uninstall_sound", "impact_sound")
+SOUND_FIELDS_MULTI = ("shoot_sounds", "shoot_silenced_sounds", "dryfire_sounds")
+SUPPORTED_SOUND_EXTENSIONS = {".mp3", ".wav", ".ogg"}
 
 def remove_emojis(text):
     """Removes a wide range of emojis and symbols from a string."""
@@ -86,6 +90,181 @@ def sanitize_for_filename(name, strict=True):
     else:
         # Allow spaces, preserve case, but remove system illegal chars
         return _ILLEGAL_FILENAME_CHARS_PATTERN.sub('', name_no_emoji).strip()
+
+def lua_escape_string(value):
+    """Escape a value for use inside a quoted Lua string."""
+    return str(value or "").replace("\\", "\\\\").replace('"', '\\"')
+
+def lua_sound_path(value):
+    """Normalize Source/ARC9 sound paths for Lua output."""
+    return lua_escape_string(str(value or "").strip().replace("\\", "/"))
+
+def split_sound_paths(value):
+    """Split comma, semicolon, or newline separated sound paths."""
+    if not value:
+        return []
+    raw_paths = re.split(r"[,;\n]+", value)
+    return [path.strip().replace("\\", "/") for path in raw_paths if path.strip()]
+
+def sanitize_sound_filename(path):
+    """Create a Source-friendly sound filename while preserving the extension."""
+    stem, extension = os.path.splitext(os.path.basename(path))
+    safe_stem = sanitize_for_filename(stem, strict=True) or "sound"
+    return f"{safe_stem}{extension.lower()}"
+
+def package_sound_file(output_path, pack_name, compact_name, source_path, used_filenames):
+    """Copy a local sound file into the addon and return its ARC9 sound path."""
+    if not source_path:
+        return ""
+
+    normalized_source = os.path.normpath(source_path.strip().strip('"'))
+    if not os.path.isfile(normalized_source):
+        return source_path.strip().replace("\\", "/")
+
+    extension = os.path.splitext(normalized_source)[1].lower()
+    if extension not in SUPPORTED_SOUND_EXTENSIONS:
+        raise ValueError(
+            f"Unsupported sound format '{extension}' for {os.path.basename(source_path)}. "
+            "Use MP3, WAV, or OGG."
+        )
+
+    addon_root = os.path.join(output_path, f"arc9_{pack_name}_stickers")
+    sound_folder = os.path.join(
+        addon_root,
+        "sound",
+        "arc9",
+        pack_name,
+        "soundmods",
+        compact_name,
+    )
+    os.makedirs(sound_folder, exist_ok=True)
+
+    filename = sanitize_sound_filename(normalized_source)
+    base_name, extension = os.path.splitext(filename)
+    counter = 2
+    while filename.lower() in used_filenames:
+        filename = f"{base_name}_{counter}{extension}"
+        counter += 1
+    used_filenames.add(filename.lower())
+
+    destination = os.path.join(sound_folder, filename)
+    shutil.copy2(normalized_source, destination)
+    return f"arc9/{pack_name}/soundmods/{compact_name}/{filename}"
+
+def package_sticker_sounds(output_path, pack_name, processed_images):
+    """Copy local sound files into the addon and rewrite fields to ARC9 paths."""
+    packaged_images = []
+    for info in processed_images:
+        packaged_info = dict(info)
+        if "shoot_sounds" not in packaged_info:
+            packaged_info["shoot_sounds"] = packaged_info.get("shoot_outdoor_sounds", "")
+        if "shoot_silenced_sounds" not in packaged_info:
+            packaged_info["shoot_silenced_sounds"] = packaged_info.get("shoot_silenced_outdoor_sounds", "")
+        used_filenames = set()
+        compact_name = packaged_info["compact_name"]
+
+        for field in SOUND_FIELDS_SINGLE:
+            packaged_info[field] = package_sound_file(
+                output_path,
+                pack_name,
+                compact_name,
+                packaged_info.get(field, ""),
+                used_filenames,
+            )
+
+        for field in SOUND_FIELDS_MULTI:
+            packaged_paths = [
+                package_sound_file(output_path, pack_name, compact_name, path, used_filenames)
+                for path in split_sound_paths(packaged_info.get(field, ""))
+            ]
+            packaged_info[field] = ", ".join(path for path in packaged_paths if path)
+
+        packaged_images.append(packaged_info)
+
+    return packaged_images
+
+def lua_array(values):
+    """Format a Python list as a compact Lua array of quoted strings."""
+    if not values:
+        return ""
+    items = ", ".join(f'"{lua_sound_path(value)}"' for value in values)
+    return f"{{ {items}, }}"
+
+def append_toggle_stat_field(lines, key, value, indent="        "):
+    if not value:
+        return
+    if isinstance(value, list):
+        lines.append(f"{indent}{key} = {lua_array(value)},")
+    else:
+        lines.append(f'{indent}{key} = "{lua_sound_path(value)}",')
+
+def create_toggle_stats_lua(info):
+    """Build optional ARC9 ToggleStats for sticker sound FX."""
+    impact_sound = info.get("impact_sound", "").strip()
+    shoot_sounds = split_sound_paths(info.get("shoot_sounds", info.get("shoot_outdoor_sounds", "")))
+    shoot_silenced_sounds = split_sound_paths(
+        info.get("shoot_silenced_sounds", info.get("shoot_silenced_outdoor_sounds", ""))
+    )
+    dryfire_sounds = split_sound_paths(info.get("dryfire_sounds", ""))
+
+    has_toggle_fx = any((
+        impact_sound,
+        shoot_sounds,
+        shoot_silenced_sounds,
+        dryfire_sounds,
+    ))
+    if not has_toggle_fx:
+        return ""
+
+    def append_toggle(lines, print_name, include):
+        lines.extend([
+            "    {",
+            f'        PrintName = "{print_name}",',
+        ])
+        if include.get("impact"):
+            append_toggle_stat_field(lines, "ImpactSound", impact_sound)
+        if include.get("shoot"):
+            append_toggle_stat_field(lines, "ShootSound", shoot_sounds)
+            append_toggle_stat_field(lines, "ShootSoundIndoor", shoot_sounds)
+        if include.get("silenced"):
+            append_toggle_stat_field(lines, "ShootSoundSilenced", shoot_silenced_sounds)
+            append_toggle_stat_field(lines, "ShootSoundSilencedIndoor", shoot_silenced_sounds)
+        if include.get("dryfire"):
+            append_toggle_stat_field(lines, "DryFireSound", dryfire_sounds)
+        lines.append("    },")
+
+    all_fx = {
+        "impact": bool(impact_sound),
+        "shoot": bool(shoot_sounds),
+        "silenced": bool(shoot_silenced_sounds),
+        "dryfire": bool(dryfire_sounds),
+    }
+    lines = [
+        "SPM.ToggleStats = {",
+    ]
+    append_toggle(lines, "FX Enabled", all_fx)
+
+    disable_options = [
+        (("impact",), "No Impact Sound"),
+        (("shoot",), "No Shoot Sound"),
+        (("silenced",), "No Silenced Sound"),
+        (("dryfire",), "No Dry Fire Sound"),
+    ]
+    for keys, print_name in disable_options:
+        if not any(all_fx[key] for key in keys):
+            continue
+        partial_fx = dict(all_fx)
+        for key in keys:
+            partial_fx[key] = False
+        append_toggle(lines, print_name, partial_fx)
+
+    lines.extend([
+        "    {",
+        '        PrintName = "FX Disabled",',
+        "    },",
+        "}",
+    ])
+    return "\n".join(lines)
 
 def iter_sorted_files(folder_path):
     """Yield files in a folder sorted by filename without extra stat calls."""
@@ -270,7 +449,7 @@ def create_lua_script(output_path, pack_name, processed_images):
     # Build Lua script content in memory for better performance
     lua_content_parts = []
     for i, info in enumerate(processed_images):
-        print_name = info["print_name"].replace('"', '\\"')
+        print_name = lua_escape_string(info["print_name"])
         description = remove_emojis(info["description"]).replace(']]>', '] ]') # Avoid breaking multiline string
         subfolder = info.get("subfolder", "")
 
@@ -285,20 +464,34 @@ def create_lua_script(output_path, pack_name, processed_images):
 
         # Construct the material path for the sticker (without subfolder)
         sticker_material = f"stickers/{pack_name}/{info['compact_name']}"
+        install_sound = lua_sound_path(info.get("install_sound", ""))
+        uninstall_sound = lua_sound_path(info.get("uninstall_sound", ""))
+        optional_lua_lines = []
+        if install_sound:
+            optional_lua_lines.append(f'SPM.InstallSound = "{install_sound}"')
+        if uninstall_sound:
+            optional_lua_lines.append(f'SPM.UninstallSound = "{uninstall_sound}"')
+        toggle_stats_lua = create_toggle_stats_lua(info)
+        if toggle_stats_lua:
+            optional_lua_lines.append(toggle_stats_lua)
+        optional_lua = "\n".join(optional_lua_lines)
+        if optional_lua:
+            optional_lua = f"\n{optional_lua}\n"
 
         lua_content_parts.append(f'''SPM = {{}}
 
 SPM.PrintName = "{print_name}"
-SPM.CompactName = "{info['compact_name']}"
+SPM.CompactName = "{lua_escape_string(info['compact_name'])}"
 SPM.Description = [[{description}]]
 
 SPM.Icon = Material("{sticker_material}")
 
 SPM.Free = true
 SPM.Category = "stickers"
-SPM.Folder = "{folder_value}"
+SPM.Folder = "{lua_escape_string(folder_value)}"
 
 SPM.StickerMaterial = "{sticker_material}"
+{optional_lua}
 
 ARC9.LoadAttachment(SPM, "sticker_{pack_name}_{info["compact_name"]}")''')
 
@@ -397,6 +590,7 @@ def main():
     # 4. FINALIZATION PHASE
     if successful_images:
         print("\nConversion complete. Now generating Lua script...")
+        successful_images = package_sticker_sounds(output_path, pack_name, successful_images)
         create_lua_script(output_path, pack_name, successful_images)
         print(f"\nSuccessfully created the '{pack_name}' sticker pack!")
     else:
