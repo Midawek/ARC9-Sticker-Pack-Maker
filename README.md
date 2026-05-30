@@ -6,6 +6,8 @@
 
 [ARC9] Sticker Pack Maker++ is an official cli/python tool that allows you to create stickers in bulk or invidually in to a ready to use addon.
 
+Currently build 5 is being cooked and before final release I am still working on it. If you are interested in trying out, follow the "Using from source" instructions
+
 ## Features
 
 - IT IS NOT A FORK but based off the original.
@@ -61,6 +63,14 @@ folder somewhere on your pc
 4. Upload it using tools like [GMPublisher](https://github.com/WilliamVenner/gmpublisher)<br>
 
 ### It's that easy!
+
+## Using from Source
+
+Download the entire code and then run `run_cli.py` or `run_gui.py` from cli based on what you want. Please read what the error is before posting an issue.
+
+## Building from source
+
+Check the scripts folder.
 
 ## Where I can post issues/feedback?????
 
