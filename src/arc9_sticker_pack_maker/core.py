@@ -381,6 +381,7 @@ def process_image_to_vtf(output_path, image_info, pack_name, compact_name, stick
             options.Resize = False
 
             if is_animated:
+                options.ImageFormat = ImageFormat.ImageFormatRGBA8888
                 # --- CORRECT ANIMATED VTF CREATION USING THE WRAPPER ---
                 frames = []
                 durations = []
