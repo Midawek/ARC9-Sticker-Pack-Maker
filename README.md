@@ -36,7 +36,7 @@ Currently build 5 is being cooked and before final release I am still working on
 | Linux/GNU         | Partial support\* Just use proton ffs.                                                |
 | macOS             | No plans as of 13/07/2026. I do not own a mac and gmod isn't supported on mac anyway. |
 
--# \*Partial support is because python is cross platform, vtflib is not, I could try some stuff but this isn't the main focus of spm++ as of today. If you find a reliable way to run spm++ feel free to mention/contact me at Doves!
+<sup>\*Partial support is because python is cross platform, vtflib is not, I could try some stuff but this isn't the main focus of spm++ as of today. If you find a reliable way to run spm++ feel free to mention/contact me at Doves!</sup>
 
 ## Which version should you pick?
 
