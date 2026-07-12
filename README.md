@@ -24,7 +24,19 @@ Currently build 5 is being cooked and before final release I am still working on
 
 - Subfolders.
 
+- Custom audio for sticker interaction
+
 - `TBA` Options for holographic and etc only in GUI
+
+## Platforms
+
+| Operating System  | Status                                                                                |
+| ----------------- | ------------------------------------------------------------------------------------- |
+| Microslop Windows | Full support                                                                          |
+| Linux/GNU         | Partial support\* Just use proton ffs.                                                |
+| macOS             | No plans as of 13/07/2026. I do not own a mac and gmod isn't supported on mac anyway. |
+
+-# \*Partial support is because python is cross platform, vtflib is not, I could try some stuff but this isn't the main focus of spm++ as of today. If you find a reliable way to run spm++ feel free to mention/contact me at Doves!
 
 ## Which version should you pick?
 
@@ -68,6 +80,10 @@ folder somewhere on your pc
 
 Download the entire code and then run `run_cli.py` or `run_gui.py` from cli based on what you want. Please read what the error is before posting an issue.
 
+Trouble downloading the code? Use this visual guide https://i.imgur.com/X9YLRI0.png
+
+You can also use [git](https://git-scm.com/) `git clone https://github.com/Midawek/ARC9-Sticker-Pack-Maker.git`
+
 ## Building from source
 
 Check the scripts folder.
@@ -75,3 +91,5 @@ Check the scripts folder.
 ## Where I can post issues/feedback?????
 
 https://github.com/Midawek/ARC9-Sticker-Pack-Maker/issues
+
+I will not accept dms with issues
