@@ -80,7 +80,7 @@ folder somewhere on your pc
 
 Download the entire code and then run `run_cli.py` or `run_gui.py` from cli based on what you want. Please read what the error is before posting an issue.
 
-Trouble downloading the code? Use this visual guide https://i.imgur.com/X9YLRI0.png
+Trouble downloading the code? Use this visual guide https://i.imgur.com/ewgnTq6.png
 
 You can also use [git](https://git-scm.com/) `git clone https://github.com/Midawek/ARC9-Sticker-Pack-Maker.git`
 
